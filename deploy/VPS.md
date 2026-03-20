@@ -1,16 +1,18 @@
 # VPS Deployment Guide
 
-Panduan ini memakai pendekatan native deploy: binary Go + PostgreSQL + systemd + nginx untuk backend, dan static build React untuk frontend.
+Setup lengkap untuk deploy Solar Forecast ke 2 domain terpisah:
+- **Backend API**: `be-forecast.thingsid.com` → repo `solar-be`
+- **Frontend SPA**: `solar-forecast.thingsid.com` → repo `solar-fe`
+
+Native deploy: binary Go + PostgreSQL + systemd + nginx.
 
 ## 1. Siapkan server
 
-Contoh target: Ubuntu 24.04.
-
-Install dependency:
+Target: Ubuntu 24.04 LTS.
 
 ```bash
 sudo apt update
-sudo apt install -y golang-go postgresql postgresql-contrib nginx git
+sudo apt install -y golang-go postgresql postgresql-contrib nginx git certbot python3-certbot-nginx
 ```
 
 ## 2. Buat user aplikasi
@@ -21,12 +23,12 @@ sudo mkdir -p /opt/solar-forecast
 sudo chown -R solar:solar /opt/solar-forecast
 ```
 
-## 3. Clone source dan build binary
+## 3. Clone & build backend (solar-be)
 
 ```bash
 cd /opt/solar-forecast
-git clone <repo-url> app
-cd app
+sudo -u solar git clone https://github.com/<your-org>/solar-be.git be
+cd be
 go build -o solar-forecast ./cmd/api
 ```
 
@@ -36,26 +38,29 @@ go build -o solar-forecast ./cmd/api
 sudo -u postgres psql
 ```
 
-Lalu buat database dan user:
-
 ```sql
 CREATE DATABASE solar_forecast;
 CREATE USER solar_user WITH ENCRYPTED PASSWORD 'replace-this-password';
 GRANT ALL PRIVILEGES ON DATABASE solar_forecast TO solar_user;
 ```
 
-## 5. Setup environment file
+## 5. Setup .env backend
 
 ```bash
-cd /opt/solar-forecast/app
+cd /opt/solar-forecast/be
 cp .env.example .env
+nano .env
 ```
 
-Isi minimal:
+Isi:
 
 ```env
 DATABASE_URL=postgres://solar_user:replace-this-password@127.0.0.1:5432/solar_forecast?sslmode=disable
 PORT=8080
+FRONTEND_ORIGIN=https://solar-forecast.thingsid.com
+AUTH_JWT_SECRET=ganti-ini-rahasia
+AUTH_TOKEN_EXPIRY_HOURS=24
+AUTH_REFRESH_TOKEN_EXPIRY_DAYS=7
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME=your_email@gmail.com
@@ -64,12 +69,10 @@ SMTP_FROM=your_email@gmail.com
 WEATHER_BASE_URL=https://api.open-meteo.com/v1
 ```
 
-## 6. Pasang systemd service
-
-Copy file contoh:
+## 6. Pasang systemd service (backend)
 
 ```bash
-sudo cp deploy/systemd/solar-forecast.service /etc/systemd/system/solar-forecast.service
+sudo cp /opt/solar-forecast/be/deploy/systemd/solar-forecast.service /etc/systemd/system/solar-forecast.service
 sudo systemctl daemon-reload
 sudo systemctl enable solar-forecast
 sudo systemctl start solar-forecast
@@ -82,65 +85,100 @@ sudo systemctl status solar-forecast
 journalctl -u solar-forecast -f
 ```
 
-## 7. Build frontend React
+## 7. Clone & build frontend (solar-fe)
 
 ```bash
-cd /opt/solar-forecast/app/frontend
+cd /opt/solar-forecast
+sudo -u solar git clone https://github.com/<your-org>/solar-fe.git fe
+cd fe
 cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+VITE_API_BASE_URL=https://be-forecast.thingsid.com
+```
+
+Install dan build:
+
+```bash
 npm install
 npm run build
 ```
 
-Jika domain API dan domain frontend sama, isi `.env` frontend dengan:
+Hasil build ada di `/opt/solar-forecast/fe/dist`.
 
-```env
-VITE_API_BASE_URL=https://your-domain.com
-```
-
-## 8. Pasang nginx reverse proxy dan static frontend
-
-Copy config contoh:
+## 8. Pasang nginx — backend
 
 ```bash
-sudo cp deploy/nginx/solar-forecast.conf /etc/nginx/sites-available/solar-forecast
-sudo ln -s /etc/nginx/sites-available/solar-forecast /etc/nginx/sites-enabled/solar-forecast
+sudo cp /opt/solar-forecast/be/deploy/nginx/be-forecast.thingsid.com.conf \
+    /etc/nginx/sites-available/be-forecast.thingsid.com
+sudo ln -s /etc/nginx/sites-available/be-forecast.thingsid.com \
+    /etc/nginx/sites-enabled/be-forecast.thingsid.com
+```
+
+## 9. Pasang nginx — frontend
+
+```bash
+sudo cp /opt/solar-forecast/be/deploy/nginx/solar-forecast.thingsid.com.conf \
+    /etc/nginx/sites-available/solar-forecast.thingsid.com
+sudo ln -s /etc/nginx/sites-available/solar-forecast.thingsid.com \
+    /etc/nginx/sites-enabled/solar-forecast.thingsid.com
+```
+
+Pastikan path `root` di config sesuai:
+
+```nginx
+root /opt/solar-forecast/fe/dist;
+```
+
+Test dan reload:
+
+```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-## 9. Uji endpoint
-
-```bash
-curl http://127.0.0.1:8080/health
-curl https://your-domain.com/health
-```
-
-Frontend akan disajikan dari `frontend/dist` oleh nginx.
-
 ## 10. SSL dengan Let's Encrypt
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+sudo certbot --nginx -d be-forecast.thingsid.com
+sudo certbot --nginx -d solar-forecast.thingsid.com
 ```
 
-## 11. Update aplikasi
+## 11. Uji endpoint
 
 ```bash
-cd /opt/solar-forecast/app
-git pull
+curl https://be-forecast.thingsid.com/health
+curl https://solar-forecast.thingsid.com
+```
+
+## 12. Update aplikasi
+
+### Backend
+
+```bash
+cd /opt/solar-forecast/be
+sudo -u solar git pull
 go build -o solar-forecast ./cmd/api
 sudo systemctl restart solar-forecast
+```
 
-cd frontend
+### Frontend
+
+```bash
+cd /opt/solar-forecast/fe
+sudo -u solar git pull
 npm install
 npm run build
 ```
+
+Frontend langsung aktif setelah build — nginx serving static files, tidak perlu restart.
 
 ## Catatan operasional
 
 - Scheduler berjalan setiap hari jam `06:00 UTC`.
 - Migrasi dijalankan otomatis saat service start.
-- Pastikan kredensial SMTP valid, jika tidak email notification akan gagal walau API tetap hidup.
-- Service mencari folder `migrations` secara aman saat dijalankan dari binary di VPS.
-- Samakan `FRONTEND_ORIGIN` backend dengan origin browser yang diizinkan.
+- Pastikan `FRONTEND_ORIGIN` backend sesuai dengan `https://solar-forecast.thingsid.com` agar CORS tidak block.
+- Pastikan kredensial SMTP valid agar email notification berjalan.
