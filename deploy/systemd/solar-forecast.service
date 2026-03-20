@@ -1,0 +1,17 @@
+[Unit]
+Description=Solar Forecast API
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=solar
+Group=solar
+WorkingDirectory=/opt/solar-forecast/app
+EnvironmentFile=/opt/solar-forecast/app/.env
+ExecStart=/opt/solar-forecast/app/solar-forecast
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

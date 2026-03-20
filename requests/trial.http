@@ -1,0 +1,35 @@
+@baseUrl = http://localhost:8080
+
+### Health Check
+GET {{baseUrl}}/health
+
+### Create User
+POST {{baseUrl}}/users
+Content-Type: application/json
+
+{
+  "name": "Trial User",
+  "email": "trial-user@example.com"
+}
+
+### List Users
+GET {{baseUrl}}/users
+
+### Create Or Update Solar Profile
+POST {{baseUrl}}/solar-profiles
+Content-Type: application/json
+
+{
+  "user_id": "REPLACE_WITH_USER_ID",
+  "capacity_kwp": 3.5,
+  "lat": -6.2,
+  "lng": 106.8166,
+  "tilt": 15,
+  "azimuth": 180
+}
+
+### Get Solar Profile By User ID
+GET {{baseUrl}}/solar-profiles/user/REPLACE_WITH_USER_ID
+
+### Get Today Forecast
+GET {{baseUrl}}/forecast/today?user_id=REPLACE_WITH_USER_ID

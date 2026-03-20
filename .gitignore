@@ -1,0 +1,6 @@
+.env
+solar-forecast
+dist/
+*.log
+frontend/node_modules/
+frontend/dist/

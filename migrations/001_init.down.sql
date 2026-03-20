@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS forecasts;
+DROP TABLE IF EXISTS weather_daily;
+DROP TABLE IF EXISTS solar_profiles;
+DROP TABLE IF EXISTS users;
+DROP EXTENSION IF EXISTS "uuid-ossp";

@@ -1,0 +1,51 @@
+### 1) Register user (optional)
+POST http://localhost:8080/auth/register
+Content-Type: application/json
+
+{
+  "name": "Device User",
+  "email": "device.user@example.com",
+  "password": "password123"
+}
+
+### 2) Login user
+POST http://localhost:8080/auth/login
+Content-Type: application/json
+
+{
+  "email": "device.user@example.com",
+  "password": "password123"
+}
+
+### 3) Create device (replace token)
+POST http://localhost:8080/devices
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "name": "Inverter Atap Timur",
+  "external_id": "plant-A-01",
+  "solar_profile_id": "{{solar_profile_id_optional}}"
+}
+
+### 4) List devices (replace token)
+GET http://localhost:8080/devices
+Authorization: Bearer {{access_token}}
+
+### 5) Rotate key (replace token and device UUID)
+POST http://localhost:8080/devices/{{device_uuid}}/rotate-key
+Authorization: Bearer {{access_token}}
+
+### 6) Ingest telemetry (replace X-Device-Key)
+POST http://localhost:8080/ingest/telemetry
+X-Device-Key: {{device_api_key}}
+Content-Type: application/json
+
+{
+  "device_id": "plant-A-01",
+  "timestamp": "2026-03-19T08:15:00Z",
+  "energy_kwh": 0.35,
+  "power_w": 1850,
+  "lat": -6.2,
+  "lng": 106.8
+}
