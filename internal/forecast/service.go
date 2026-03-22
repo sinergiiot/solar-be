@@ -5,10 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
-	"log"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"

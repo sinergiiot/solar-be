@@ -58,27 +58,14 @@ func (h *Handler) GetTodayForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deltaWfVal := float64(f.DeltaWF)
-	if deltaWfVal == 0 {
-		deltaWfVal = float64(f.WeatherFactor)
-	}
-
-	bType := f.BaselineType
-	if bType == "" {
-		bType = "synthetic"
-	}
-
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_id":          f.UserID,
 		"solar_profile_id": f.SolarProfileID,
 		"date":             f.Date.Format(time.DateOnly),
 		"predicted_kwh":    f.PredictedKwh,
 		"cloud_cover":      float64(f.CloudCover), // always float64 for JSON
-		"cloud_cover_mean": float64(f.CloudCover), // required by frontend
-		"weather_factor":   deltaWfVal,
-		"transmittance":    deltaWfVal,            // required by frontend
-		"delta_wf":         deltaWfVal,
-		"baseline_type":    bType,
+		"weather_factor":   float64(f.DeltaWF),    // always float64 for JSON
+		"baseline_type":    f.BaselineType,
 		"efficiency":       f.Efficiency,
 	})
 }
@@ -138,26 +125,15 @@ func (h *Handler) GetForecastHistory(w http.ResponseWriter, r *http.Request) {
 
 	var result []map[string]any
 	for _, f := range forecasts {
-		deltaWfVal := f.DeltaWF
-		if deltaWfVal == 0 {
-			deltaWfVal = f.WeatherFactor
-		}
-		bType := f.BaselineType
-		if bType == "" {
-			bType = "synthetic"
-		}
-		result = append(result, map[string]any{
-			"date":             f.Date.Format(time.DateOnly),
-			"solar_profile_id": f.SolarProfileID,
-			"predicted_kwh":    f.PredictedKwh,
-			"cloud_cover_mean": f.CloudCover,    // percent (0-100)
-			"cloud_cover":      f.CloudCover,    // add just in case
-			"weather_factor":   deltaWfVal,      // delta_wf was previously mapped to weather_factor
-			"transmittance":    deltaWfVal,      // delta_wf (0.5-1.5), actual weather factor used
-			"delta_wf":         deltaWfVal,
-			"baseline_type":    bType,           // synthetic/site/blended
-			"efficiency":       f.Efficiency,
-		})
+		   result = append(result, map[string]any{
+			   "date":             f.Date.Format(time.DateOnly),
+			   "solar_profile_id": f.SolarProfileID,
+			   "predicted_kwh":    f.PredictedKwh,
+			   "cloud_cover_mean": f.WeatherFactor, // percent (0-100)
+			   "transmittance":    f.DeltaWF,       // delta_wf (0-1), actual weather factor used
+			   "baseline_type":    f.BaselineType,  // synthetic/site
+			   "efficiency":       f.Efficiency,
+		   })
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

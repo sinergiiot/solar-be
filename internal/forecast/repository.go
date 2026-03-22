@@ -49,17 +49,15 @@ func NewRepository(db *sql.DB) Repository {
 // SaveForecast inserts or updates a forecast for a user on a given date
 func (r *repository) SaveForecast(f *Forecast) error {
 	query := `
-		INSERT INTO forecasts (id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at, delta_wf, baseline_type)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO forecasts (id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (user_id, solar_profile_id, date) DO UPDATE
 			SET predicted_kwh  = EXCLUDED.predicted_kwh,
 			    weather_factor = EXCLUDED.weather_factor,
-			    efficiency     = EXCLUDED.efficiency,
-			    delta_wf       = EXCLUDED.delta_wf,
-			    baseline_type  = EXCLUDED.baseline_type
+			    efficiency     = EXCLUDED.efficiency
 	`
 	normalizedDate := normalizeDate(f.Date)
-	_, err := r.db.Exec(query, f.ID, f.UserID, f.SolarProfileID, normalizedDate, f.PredictedKwh, f.WeatherFactor, f.Efficiency, f.CreatedAt, f.DeltaWF, f.BaselineType)
+	_, err := r.db.Exec(query, f.ID, f.UserID, f.SolarProfileID, normalizedDate, f.PredictedKwh, f.WeatherFactor, f.Efficiency, f.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save forecast: %w", err)
 	}
@@ -69,33 +67,23 @@ func (r *repository) SaveForecast(f *Forecast) error {
 // GetForecastByUserAndDate retrieves the forecast for a specific user and date
 func (r *repository) GetForecastByUserAndDate(userID uuid.UUID, solarProfileID uuid.UUID, date time.Time) (*Forecast, error) {
 	query := `
-		SELECT f.id, f.user_id, f.solar_profile_id, f.date, f.predicted_kwh, f.weather_factor, f.efficiency, f.created_at, f.delta_wf, f.baseline_type, COALESCE(wd.cloud_cover, 0)
-		FROM forecasts f
-		LEFT JOIN solar_profiles sp ON f.solar_profile_id = sp.id
-		LEFT JOIN weather_daily wd ON f.date = wd.date AND sp.lat = wd.lat AND sp.lng = wd.lng
-		WHERE f.user_id = $1 AND f.solar_profile_id = $2 AND f.date = $3
+		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at
+		FROM forecasts WHERE user_id = $1 AND solar_profile_id = $2 AND date = $3
 	`
 	row := r.db.QueryRow(query, userID, solarProfileID, normalizeDate(date))
 
 	f := &Forecast{}
-	var deltaWF sql.NullFloat64
-	var baselineType sql.NullString
-	if err := row.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt, &deltaWF, &baselineType, &f.CloudCover); err != nil {
+	if err := row.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get forecast: %w", err)
 	}
-	f.DeltaWF = deltaWF.Float64
-	f.BaselineType = baselineType.String
 	return f, nil
 }
 
 // GetAllForecastsByDate returns all forecasts generated for a given date
 func (r *repository) GetAllForecastsByDate(date time.Time) ([]*Forecast, error) {
 	query := `
-		SELECT f.id, f.user_id, f.solar_profile_id, f.date, f.predicted_kwh, f.weather_factor, f.efficiency, f.created_at, f.delta_wf, f.baseline_type, COALESCE(wd.cloud_cover, 0)
-		FROM forecasts f
-		LEFT JOIN solar_profiles sp ON f.solar_profile_id = sp.id
-		LEFT JOIN weather_daily wd ON f.date = wd.date AND sp.lat = wd.lat AND sp.lng = wd.lng
-		WHERE f.date = $1
+		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at
+		FROM forecasts WHERE date = $1
 	`
 	rows, err := r.db.Query(query, normalizeDate(date))
 	if err != nil {
@@ -106,13 +94,9 @@ func (r *repository) GetAllForecastsByDate(date time.Time) ([]*Forecast, error) 
 	var forecasts []*Forecast
 	for rows.Next() {
 		f := &Forecast{}
-		var deltaWF sql.NullFloat64
-		var baselineType sql.NullString
-		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt, &deltaWF, &baselineType, &f.CloudCover); err != nil {
+		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan forecast: %w", err)
 		}
-		f.DeltaWF = deltaWF.Float64
-		f.BaselineType = baselineType.String
 		forecasts = append(forecasts, f)
 	}
 	return forecasts, nil
@@ -199,27 +183,25 @@ func (r *repository) GetForecastHistoryByUser(userID uuid.UUID, days int, filter
 	args := []any{userID, days}
 	b := strings.Builder{}
 	b.WriteString(`
-		SELECT f.id, f.user_id, f.solar_profile_id, f.date, f.predicted_kwh, f.weather_factor, f.efficiency, f.created_at, f.delta_wf, f.baseline_type, COALESCE(wd.cloud_cover, 0)
-		FROM forecasts f
-		LEFT JOIN solar_profiles sp ON f.solar_profile_id = sp.id
-		LEFT JOIN weather_daily wd ON f.date = wd.date AND sp.lat = wd.lat AND sp.lng = wd.lng
-		WHERE f.user_id = $1 AND f.date >= NOW() - INTERVAL '1 day' * $2
+		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at
+		FROM forecasts
+		WHERE user_id = $1 AND date >= NOW() - INTERVAL '1 day' * $2
 	`)
 
 	if filter.SolarProfileID != nil {
 		args = append(args, *filter.SolarProfileID)
-		b.WriteString(fmt.Sprintf(" AND f.solar_profile_id = $%d", len(args)))
+		b.WriteString(fmt.Sprintf(" AND solar_profile_id = $%d", len(args)))
 	}
 	if filter.StartDate != nil {
 		args = append(args, normalizeDate(*filter.StartDate))
-		b.WriteString(fmt.Sprintf(" AND f.date >= $%d", len(args)))
+		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
 	}
 	if filter.EndDate != nil {
 		args = append(args, normalizeDate(*filter.EndDate))
-		b.WriteString(fmt.Sprintf(" AND f.date <= $%d", len(args)))
+		b.WriteString(fmt.Sprintf(" AND date <= $%d", len(args)))
 	}
 
-	b.WriteString(" ORDER BY f.date DESC LIMIT 100")
+	b.WriteString(" ORDER BY date DESC LIMIT 100")
 
 	rows, err := r.db.Query(b.String(), args...)
 	if err != nil {
@@ -230,13 +212,9 @@ func (r *repository) GetForecastHistoryByUser(userID uuid.UUID, days int, filter
 	forecasts := []*Forecast{}
 	for rows.Next() {
 		f := &Forecast{}
-		var deltaWF sql.NullFloat64
-		var baselineType sql.NullString
-		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt, &deltaWF, &baselineType, &f.CloudCover); err != nil {
+		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan forecast row: %w", err)
 		}
-		f.DeltaWF = deltaWF.Float64
-		f.BaselineType = baselineType.String
 		forecasts = append(forecasts, f)
 	}
 	if err := rows.Err(); err != nil {

@@ -78,7 +78,7 @@ func (s *service) GetSyntheticBaseline(ctx context.Context, profileID, userID st
 		BaselineValue: avg,
 		SampleCount:   count,
 		ValidFrom:     dateFrom,
-		ValidTo:       time.Now().AddDate(0, 0, 1), // Cache valid for 24 hours (until tomorrow)
+		ValidTo:       dateTo,
 	}
 	_ = s.repo.SaveBaseline(ctx, baseline)
 	return avg, count, nil
