@@ -49,8 +49,23 @@ func (h *Handler) GetTodayForecast(w http.ResponseWriter, r *http.Request) {
 
 	f, err := h.service.GetTodayForecastForUser(userID, profileID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		// Return 400 if data missing, 500 for internal error
+		status := http.StatusInternalServerError
+		if strings.Contains(err.Error(), "weather data missing") || strings.Contains(err.Error(), "cloud_cover=0") {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{"error": err.Error()})
 		return
+	}
+
+	deltaWfVal := float64(f.DeltaWF)
+	if deltaWfVal == 0 {
+		deltaWfVal = float64(f.WeatherFactor)
+	}
+
+	bType := f.BaselineType
+	if bType == "" {
+		bType = "synthetic"
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -58,7 +73,12 @@ func (h *Handler) GetTodayForecast(w http.ResponseWriter, r *http.Request) {
 		"solar_profile_id": f.SolarProfileID,
 		"date":             f.Date.Format(time.DateOnly),
 		"predicted_kwh":    f.PredictedKwh,
-		"weather_factor":   f.WeatherFactor,
+		"cloud_cover":      float64(f.CloudCover), // always float64 for JSON
+		"cloud_cover_mean": float64(f.CloudCover), // required by frontend
+		"weather_factor":   deltaWfVal,
+		"transmittance":    deltaWfVal,            // required by frontend
+		"delta_wf":         deltaWfVal,
+		"baseline_type":    bType,
 		"efficiency":       f.Efficiency,
 	})
 }
@@ -118,11 +138,24 @@ func (h *Handler) GetForecastHistory(w http.ResponseWriter, r *http.Request) {
 
 	var result []map[string]any
 	for _, f := range forecasts {
+		deltaWfVal := f.DeltaWF
+		if deltaWfVal == 0 {
+			deltaWfVal = f.WeatherFactor
+		}
+		bType := f.BaselineType
+		if bType == "" {
+			bType = "synthetic"
+		}
 		result = append(result, map[string]any{
 			"date":             f.Date.Format(time.DateOnly),
 			"solar_profile_id": f.SolarProfileID,
 			"predicted_kwh":    f.PredictedKwh,
-			"weather_factor":   f.WeatherFactor,
+			"cloud_cover_mean": f.CloudCover,    // percent (0-100)
+			"cloud_cover":      f.CloudCover,    // add just in case
+			"weather_factor":   deltaWfVal,      // delta_wf was previously mapped to weather_factor
+			"transmittance":    deltaWfVal,      // delta_wf (0.5-1.5), actual weather factor used
+			"delta_wf":         deltaWfVal,
+			"baseline_type":    bType,           // synthetic/site/blended
 			"efficiency":       f.Efficiency,
 		})
 	}

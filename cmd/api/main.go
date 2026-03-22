@@ -20,6 +20,7 @@ import (
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
+	"github.com/akbarsenawijaya/solar-forecast/internal/weatherbaseline"
 	"github.com/akbarsenawijaya/solar-forecast/pkg/utils"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -47,14 +48,28 @@ func main() {
 	forecastRepo := forecast.NewRepository(db)
 	deviceRepo := device.NewRepository(db)
 	notifRepo := notification.NewRepository(db)
+	weatherBaselineRepo := weatherbaseline.NewRepository(db)
 
 	// Wire services
 	userSvc := user.NewService(userRepo)
 	solarSvc := solar.NewService(solarRepo)
 	weatherSvc := weather.NewService(weatherRepo, cfg.Weather.BaseURL)
-	forecastSvc := forecast.NewService(forecastRepo, solarSvc, weatherSvc)
+	weatherBaselineSvc := weatherbaseline.NewService(weatherBaselineRepo, cfg.Weather.BaseURL)
+	forecastSvc := forecast.NewService(forecastRepo, solarSvc, weatherSvc, weatherBaselineSvc)
 	deviceSvc := device.NewService(deviceRepo)
-	authSvc := auth.NewService(db, userSvc, cfg.Auth.JWTSecret, cfg.Auth.TokenExpiryHrs, cfg.Auth.RefreshTokenExpiryDays)
+	authSvc := auth.NewService(
+		db,
+		userSvc,
+		cfg.Auth.JWTSecret,
+		cfg.Auth.TokenExpiryHrs,
+		cfg.Auth.RefreshTokenExpiryDays,
+		cfg.Auth.VerifyEmailOnRegister,
+		cfg.SMTP.Host,
+		cfg.SMTP.Port,
+		cfg.SMTP.Username,
+		cfg.SMTP.Password,
+		cfg.SMTP.From,
+	)
 	notifSvc := notification.NewService(
 		notifRepo,
 		cfg.SMTP.Host,

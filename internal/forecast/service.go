@@ -1,12 +1,14 @@
 package forecast
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
+	"log"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
@@ -37,18 +39,28 @@ type Service interface {
 	GetDashboardSummary(userID uuid.UUID) (*DashboardSummary, error)
 }
 
+
+// service implements forecast business logic, now with weatherbaseline
 type service struct {
 	repo           Repository
 	solarService   solar.Service
 	weatherService weather.Service
+	weatherBaselineService interface {
+        GetSyntheticBaseline(ctx context.Context, profileID, userID string, lat, lng float64) (float64, int, error)
+        GetSiteBaseline(ctx context.Context, profileID, userID string) (float64, int, error)
+    }
 }
 
-// NewService creates a new forecast service
-func NewService(repo Repository, solarSvc solar.Service, weatherSvc weather.Service) Service {
+// NewService creates a new forecast service with weather baseline
+func NewService(repo Repository, solarSvc solar.Service, weatherSvc weather.Service, weatherBaselineSvc interface {
+	GetSyntheticBaseline(ctx context.Context, profileID, userID string, lat, lng float64) (float64, int, error)
+	GetSiteBaseline(ctx context.Context, profileID, userID string) (float64, int, error)
+}) Service {
 	return &service{
 		repo:           repo,
 		solarService:   solarSvc,
 		weatherService: weatherSvc,
+		weatherBaselineService: weatherBaselineSvc,
 	}
 }
 
@@ -64,22 +76,29 @@ func (s *service) GenerateForecastForUser(userID uuid.UUID, date time.Time) (*Fo
 	return s.generateForecastForProfile(userID, profile.ID, date)
 }
 
-// generateForecastForProfile calculates and stores one forecast for a selected profile.
+// generateForecastForProfile calculates and stores one forecast for a selected profile using ΔWF
 func (s *service) generateForecastForProfile(userID uuid.UUID, solarProfileID uuid.UUID, date time.Time) (*Forecast, error) {
 	// Get the user's solar profile
 	profile, err := s.solarService.GetSolarProfileByIDAndUserID(solarProfileID, userID)
 	if err != nil {
+		log.Println("[DEBUG] ERROR: get solar profile", solarProfileID, userID, err)
 		return nil, fmt.Errorf("get solar profile %s for user %s: %w", solarProfileID, userID, err)
 	}
 
 	// Fetch weather for the profile's location
 	w, err := s.weatherService.FetchWeatherForDate(profile.Lat, profile.Lng, date)
 	if err != nil {
+		log.Println("[ERROR] fetch weather failed", profile.Lat, profile.Lng, date, err)
 		return nil, fmt.Errorf("fetch weather for user %s: %w", userID, err)
+	}
+	if w == nil || w.CloudCover == 0 {
+		log.Println("[ERROR] weather data missing or cloud_cover=0", profile.Lat, profile.Lng, date, w)
+		return nil, fmt.Errorf("weather data missing or cloud_cover=0 for user %s, profile %s, date %s", userID, profile.ID, date.Format("2006-01-02"))
 	}
 
 	psh, err := getPSHFromWeather(w)
 	if err != nil {
+		log.Println("[ERROR] getPSHFromWeather", w, err)
 		return nil, fmt.Errorf("derive psh from weather data: %w", err)
 	}
 
@@ -88,24 +107,56 @@ func (s *service) generateForecastForProfile(userID uuid.UUID, solarProfileID uu
 		if errors.Is(err, sql.ErrNoRows) {
 			efficiency = defaultEfficiency
 		} else {
+			log.Println("[DEBUG] ERROR: getUserEfficiency", userID, err)
 			return nil, fmt.Errorf("get user efficiency for user %s: %w", userID, err)
 		}
 	}
 
-	// Calculate forecast using measured daily radiation-derived PSH.
-	weatherFactor := getWeatherFactor(w.CloudCover)
-	predictedKwh := CalculateForecast(profile.CapacityKwp, psh, efficiency)
-
-	f := &Forecast{
-		ID:             uuid.New(),
-		UserID:         userID,
-		SolarProfileID: &profile.ID,
-		Date:           date,
-		PredictedKwh:   predictedKwh,
-		WeatherFactor:  weatherFactor,
-		Efficiency:     efficiency,
-		CreatedAt:      time.Now().UTC(),
+	// Calculate deltaWF and baselineType using weatherbaseline
+	deltaRes, err := ComputeDeltaWF(
+	    context.Background(),
+	    s.repo,
+	    s.weatherBaselineService,
+	    profile.ID.String(),
+	    userID.String(),
+	    float64(w.CloudCover),
+	    profile.Lat,
+	    profile.Lng,
+	)
+	if err != nil {
+		log.Println("[ERROR] ComputeDeltaWF failed", profile.ID, userID, w.CloudCover, err)
+	    return nil, fmt.Errorf("compute deltaWF: %w", err)
 	}
+
+	// DEBUG LOG: print all calculation inputs and outputs
+	predictedKwh := profile.CapacityKwp * psh * efficiency * deltaRes.DeltaWF
+
+	log.Println("[DEBUG] Forecast calculation:")
+	log.Println("  user_id:", userID)
+	log.Println("  profile_id:", profile.ID)
+	log.Println("  date:", date.Format("2006-01-02"))
+	log.Println("  capacity_kWp:", profile.CapacityKwp)
+	log.Println("  shortwave_MJ:", w.ShortwaveRadiationMJ)
+	log.Println("  psh:", psh)
+	log.Println("  efficiency:", efficiency)
+	log.Println("  cloud_cover:", w.CloudCover)
+	log.Println("  baseline_type:", deltaRes.BaselineType)
+	log.Println("  delta_wf:", deltaRes.DeltaWF)
+	log.Println("  predicted_kwh:", predictedKwh)
+
+f := &Forecast{
+	ID:             uuid.New(),
+	UserID:         userID,
+	SolarProfileID: &profile.ID,
+	Date:           date,
+	PredictedKwh:   predictedKwh,
+	WeatherFactor:  deltaRes.DeltaWF,  // transmittance
+	CloudCover:     w.CloudCover,      // fix: store actual cloud cover
+	Efficiency:     efficiency,
+	DeltaWF:        deltaRes.DeltaWF,
+	BaselineType:   deltaRes.BaselineType,
+	CreatedAt:      time.Now().UTC(),
+}
 
 	if err := s.repo.SaveForecast(f); err != nil {
 		return nil, err
@@ -380,6 +431,11 @@ func CalculateForecast(capacityKwp float64, psh float64, efficiency float64) flo
 	return capacityKwp * psh * efficiency
 }
 
+// CalculateForecastWithWeatherFactor computes solar energy (kWh) for cold start (no actual data), including Weather Factor.
+func CalculateForecastWithWeatherFactor(capacityKwp float64, psh float64, efficiency float64, weatherFactor float64) float64 {
+	return capacityKwp * psh * efficiency * weatherFactor
+}
+
 // GetForecastHistory returns recent forecasts for a user.
 func (s *service) GetForecastHistory(userID uuid.UUID, days int, filter HistoryFilter) ([]*Forecast, error) {
 	return s.repo.GetForecastHistoryByUser(userID, days, filter)
@@ -462,13 +518,4 @@ func getPSHFromWeather(w *weather.WeatherDaily) (float64, error) {
 	return w.ShortwaveRadiationMJ / 3.6, nil
 }
 
-// clamp keeps a value inside the given range.
-func clamp(value float64, min float64, max float64) float64 {
-	if value < min {
-		return min
-	}
-	if value > max {
-		return max
-	}
-	return value
-}
+// ...existing code... (removed duplicate clamp)

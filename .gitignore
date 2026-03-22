@@ -2,6 +2,6 @@
 solar-forecast
 dist/
 *.log
-
 # Frontend lives in its own repo (solar-fe)
 frontend/
+

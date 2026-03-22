@@ -13,6 +13,7 @@ type WeatherDaily struct {
 	Lat                  float64   `json:"lat"`
 	Lng                  float64   `json:"lng"`
 	CloudCover           int       `json:"cloud_cover"`
+	CloudCoverMean       float64   `json:"cloud_cover_mean"`
 	Temperature          float64   `json:"temperature"`
 	ShortwaveRadiationMJ float64   `json:"shortwave_radiation_mj"`
 	RawJSON              string    `json:"-"`

@@ -30,9 +30,20 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type verifyEmailRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+type resendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
 // RegisterPublicRoutes wires public auth endpoints.
 func (h *Handler) RegisterPublicRoutes(r chi.Router) {
 	r.Post("/auth/register", h.Register)
+	r.Post("/auth/verify-email", h.VerifyEmail)
+	r.Post("/auth/resend-verification", h.ResendVerification)
 	r.Post("/auth/login", h.Login)
 	r.Post("/auth/logout", h.Logout)
 	r.Post("/auth/refresh", h.Refresh)
@@ -51,21 +62,64 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, accessToken, refreshToken, err := h.authService.Register(req.Name, req.Email, req.Password)
+	u, err := h.authService.Register(req.Name, req.Email, req.Password)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
+		"message": "Akun berhasil dibuat. Silakan cek email untuk kode verifikasi.",
+		"verification_required": true,
+		"user": map[string]any{
+			"id":             u.ID,
+			"name":           u.Name,
+			"email":          u.Email,
+			"email_verified": u.EmailVerified,
+		},
+	})
+}
+
+// VerifyEmail handles POST /auth/verify-email.
+func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req verifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	u, accessToken, refreshToken, err := h.authService.VerifyEmail(req.Email, req.Code)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user": map[string]any{
-			"id":    u.ID,
-			"name":  u.Name,
-			"email": u.Email,
+			"id":             u.ID,
+			"name":           u.Name,
+			"email":          u.Email,
+			"email_verified": u.EmailVerified,
 		},
 	})
+}
+
+// ResendVerification handles POST /auth/resend-verification.
+func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req resendVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if err := h.authService.ResendVerification(req.Email); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Kode verifikasi baru telah dikirim."})
 }
 
 // Login handles POST /auth/login.
@@ -86,9 +140,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user": map[string]any{
-			"id":    u.ID,
-			"name":  u.Name,
-			"email": u.Email,
+			"id":             u.ID,
+			"name":           u.Name,
+			"email":          u.Email,
+			"email_verified": u.EmailVerified,
 		},
 	})
 }
@@ -145,6 +200,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		"id":                  u.ID,
 		"name":                u.Name,
 		"email":               u.Email,
+		"email_verified":      u.EmailVerified,
 		"forecast_efficiency": u.ForecastEfficiency,
 	})
 }

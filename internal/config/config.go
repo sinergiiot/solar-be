@@ -34,6 +34,7 @@ type AuthConfig struct {
 	JWTSecret              string
 	TokenExpiryHrs         int
 	RefreshTokenExpiryDays int
+	VerifyEmailOnRegister  bool
 }
 
 // FrontendConfig holds browser client integration settings.
@@ -81,12 +82,13 @@ func Load() *Config {
 			JWTSecret:              getEnv("AUTH_JWT_SECRET", "dev-secret-change-me"),
 			TokenExpiryHrs:         getEnvAsInt("AUTH_TOKEN_EXPIRY_HOURS", 24),
 			RefreshTokenExpiryDays: getEnvAsInt("AUTH_REFRESH_TOKEN_EXPIRY_DAYS", 7),
+			VerifyEmailOnRegister:  getEnvAsBool("AUTH_VERIFY_EMAIL_ON_REGISTER", true),
 		},
 		Debug: DebugConfig{
 			ForecastToken: getEnv("FORECAST_DEBUG_TOKEN", ""),
 		},
 		Frontend: FrontendConfig{
-			AllowedOrigin: getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
+			AllowedOrigin: getEnv("FRONTEND_ORIGIN", "https://be-forecast.thingsid.com"),
 		},
 		SMTP: SMTPConfig{
 			Host:     getEnv("SMTP_HOST", "smtp.gmail.com"),
@@ -108,6 +110,21 @@ func Load() *Config {
 			BaseURL: getEnv("WEATHER_BASE_URL", "https://api.open-meteo.com/v1"),
 		},
 	}
+}
+
+// getEnvAsBool returns a bool environment value or fallback.
+func getEnvAsBool(key string, fallback bool) bool {
+	val := os.Getenv(key)
+	if val == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(val)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }
 
 // getEnvAsInt returns an int environment value or fallback.

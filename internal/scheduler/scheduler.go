@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,13 +43,13 @@ func New(
 
 // Start registers all cron jobs and starts the scheduler.
 func (s *Scheduler) Start() {
-	_, err := s.cron.AddFunc("0 36 15 * * *", s.runDailyForecastJob)
+	_, err := s.cron.AddFunc("0 */5 * * * *", s.runScheduledForecastChecks)
 	if err != nil {
 		log.Fatalf("failed to register daily forecast cron: %v", err)
 	}
 
 	s.cron.Start()
-	log.Println("Scheduler started: daily forecast job runs at 15:36 UTC")
+	log.Println("Scheduler started: checking due user forecast deliveries every 5 minutes")
 }
 
 // Stop gracefully stops the scheduler.
@@ -58,46 +58,82 @@ func (s *Scheduler) Stop() {
 	log.Println("Scheduler stopped")
 }
 
-// runDailyForecastJob generates and delivers forecasts for all users.
-func (s *Scheduler) runDailyForecastJob() {
-	log.Println("Running daily forecast job...")
-	// Allow override for testing (via TEST_DATE env var in YYYY-MM-DD format)
-	var today time.Time
-	if testDateStr := os.Getenv("TEST_DATE"); testDateStr != "" {
-		parsed, err := time.Parse("2006-01-02", testDateStr)
-		if err == nil {
-			today = parsed
-		} else {
-			now := time.Now().UTC()
-			today = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-		}
-	} else {
-		now := time.Now().UTC()
-		today = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	}
-	yesterday := today.AddDate(0, 0, -1)
-
-	users, err := s.userService.GetAllUsers()
+// runScheduledForecastChecks checks every verified user and only sends for those due in the current 5-minute window.
+func (s *Scheduler) runScheduledForecastChecks() {
+	log.Println("Running scheduled forecast delivery check...")
+	nowUTC := time.Now().UTC()
+	prefs, err := s.notifService.GetAllPreferences()
 	if err != nil {
-		log.Printf("daily forecast: failed to fetch users: %v", err)
+		log.Printf("scheduled forecast: failed to fetch notification preferences: %v", err)
 		return
 	}
 
-	for _, currentUser := range users {
-		if err := s.calibrateUserEfficiency(currentUser.ID, yesterday); err != nil {
-			log.Printf("daily calibration: failed for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
-		}
-
-		if err := s.processUserForecast(currentUser.ID, currentUser.Name, currentUser.Email, today); err != nil {
-			if isMissingSolarProfileError(err) {
-				log.Printf("daily forecast: skipped for user %s (%s): solar profile not available", currentUser.Name, currentUser.ID)
-				continue
-			}
-			log.Printf("daily forecast: failed for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
-		}
+	prefMap := make(map[uuid.UUID]*notification.NotificationPreference, len(prefs))
+	for _, pref := range prefs {
+		prefMap[pref.UserID] = pref
 	}
 
-	log.Printf("Daily forecast job completed for %d users", len(users))
+	users, err := s.userService.GetAllUsers()
+	if err != nil {
+		log.Printf("scheduled forecast: failed to fetch users: %v", err)
+		return
+	}
+
+	dueCount := 0
+
+	for _, currentUser := range users {
+		if !currentUser.EmailVerified {
+			log.Printf("scheduled forecast: skipped for user %s (%s): email not verified", currentUser.Name, currentUser.ID)
+			continue
+		}
+
+		pref := prefMap[currentUser.ID]
+		if pref == nil {
+			pref, err = s.notifService.GetPreference(currentUser.ID)
+			if err != nil {
+				log.Printf("scheduled forecast: failed to resolve preference for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
+				continue
+			}
+		}
+
+		if pref == nil {
+			log.Printf("scheduled forecast: skipped for user %s (%s): preference unavailable", currentUser.Name, currentUser.ID)
+			continue
+		}
+
+		localNow, localToday, due, reason := dueForDispatch(pref, nowUTC)
+		if !due {
+			if reason != "outside delivery window" {
+				log.Printf("scheduled forecast: skipped for user %s (%s): %s", currentUser.Name, currentUser.ID, reason)
+			}
+			continue
+		}
+
+		dueCount++
+		yesterday := localToday.AddDate(0, 0, -1)
+
+		if err := s.calibrateUserEfficiency(currentUser.ID, yesterday); err != nil {
+			log.Printf("scheduled calibration: failed for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
+		}
+
+		if err := s.processUserForecast(currentUser.ID, currentUser.Name, currentUser.Email, localToday); err != nil {
+			if isMissingSolarProfileError(err) {
+				log.Printf("scheduled forecast: skipped for user %s (%s): solar profile not available", currentUser.Name, currentUser.ID)
+				continue
+			}
+			log.Printf("scheduled forecast: failed for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
+			continue
+		}
+
+		if err := s.notifService.MarkDailyForecastSent(currentUser.ID, localToday, nowUTC); err != nil {
+			log.Printf("scheduled forecast: failed to mark sent for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
+			continue
+		}
+
+		log.Printf("scheduled forecast: sent for user %s (%s) at local %s", currentUser.Name, currentUser.ID, localNow.Format(time.RFC3339))
+	}
+
+	log.Printf("Scheduled forecast delivery check completed: %d due users processed out of %d", dueCount, len(users))
 }
 
 // calibrateUserEfficiency updates one user's efficiency from yesterday actual data when available.
@@ -133,9 +169,12 @@ func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, da
 	}
 
 	solarProfileName := "-"
+	var lat, lng float64
 	if result.SolarProfileID != nil {
 		if profile, profileErr := s.solarService.GetSolarProfileByIDAndUserID(*result.SolarProfileID, userID); profileErr == nil {
 			solarProfileName = profile.SiteName
+			lat = profile.Lat
+			lng = profile.Lng
 		}
 	}
 
@@ -160,20 +199,32 @@ func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, da
 		weatherRisk = "Risiko Cuaca Sedang"
 	}
 
+	conditionLabel, conditionImpact := getConditionText(result.WeatherFactor)
+	baselineType := result.BaselineType
+	if baselineType == "" {
+		baselineType = "synthetic"
+	}
+
 	payload := notification.DispatchPayload{
 		UserID:           userID,
 		ToName:           name,
 		ToEmail:          email,
 		Date:             date.Format("2006-01-02"),
 		PredictedKwh:     result.PredictedKwh,
+		CloudCover:       result.CloudCover,
+		BaselineType:     baselineType,
 		WeatherFactor:    result.WeatherFactor,
 		Efficiency:       result.Efficiency,
 		SolarProfileName: solarProfileName,
 		WeatherRisk:      weatherRisk,
 		EstimatedCost:    result.PredictedKwh * 1444,
-		EstimatedCO2Kg:   result.PredictedKwh * 0.85,
+		EstimatedCO2Kg:   result.PredictedKwh * getEmissionFactor(lat, lng),
 		DeviationPct:     deviationPct,
 		ReferenceLabel:   referenceLabel,
+		Lat:              lat,
+		Lng:              lng,
+		ConditionLabel:   conditionLabel,
+		ConditionImpact:  conditionImpact,
 	}
 
 	if err := s.notifService.DispatchDailyForecast(payload); err != nil {
@@ -222,4 +273,105 @@ func containsNoRowsProfileLookup(err error) bool {
 // contains wraps strings.Contains for explicit log-skip helpers.
 func contains(text, fragment string) bool {
 	return strings.Contains(text, fragment)
+}
+
+func dueForDispatch(pref *notification.NotificationPreference, nowUTC time.Time) (time.Time, time.Time, bool, string) {
+	locationName := strings.TrimSpace(pref.Timezone)
+	if locationName == "" {
+		locationName = "UTC"
+	}
+
+	location, err := time.LoadLocation(locationName)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, "invalid timezone"
+	}
+
+	preferredClock := strings.TrimSpace(pref.PreferredSendTime)
+	if preferredClock == "" {
+		preferredClock = "06:00:00"
+	}
+
+	hour, minute, second, err := parseClock(preferredClock)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, "invalid preferred send time"
+	}
+
+	localNow := nowUTC.In(location)
+	localToday := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
+	targetTime := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, minute, second, 0, location)
+	windowStart := targetTime
+	windowEnd := targetTime.Add(5 * time.Minute)
+
+	if localNow.Before(windowStart) || !localNow.Before(windowEnd) {
+		return localNow, localToday, false, "outside delivery window"
+	}
+
+	if pref.LastDailyForecastSentForDate != nil {
+		lastSentDate := *pref.LastDailyForecastSentForDate
+		if sameCalendarDay(lastSentDate, localToday) {
+			return localNow, localToday, false, "already sent for local date"
+		}
+	}
+
+	return localNow, localToday, true, "due"
+}
+
+func parseClock(value string) (int, int, int, error) {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("clock must use HH:MM:SS")
+	}
+
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil || hour < 0 || hour > 23 {
+		return 0, 0, 0, fmt.Errorf("invalid hour")
+	}
+
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil || minute < 0 || minute > 59 {
+		return 0, 0, 0, fmt.Errorf("invalid minute")
+	}
+
+	second, err := strconv.Atoi(parts[2])
+	if err != nil || second < 0 || second > 59 {
+		return 0, 0, 0, fmt.Errorf("invalid second")
+	}
+
+	return hour, minute, second, nil
+}
+
+func sameCalendarDay(left, right time.Time) bool {
+	return left.Year() == right.Year() && left.Month() == right.Month() && left.Day() == right.Day()
+}
+
+func getEmissionFactor(lat, lng float64) float64 {
+	if lat >= -9.0 && lat <= -5.0 && lng >= 105.0 && lng <= 116.0 {
+		return 0.85
+	}
+	if lat >= -6.0 && lat <= 6.0 && lng >= 95.0 && lng <= 106.0 {
+		return 0.75
+	}
+	if lat >= -4.0 && lat <= 5.0 && lng >= 108.0 && lng <= 119.0 {
+		return 0.80
+	}
+	if lat >= -6.0 && lat <= 2.0 && lng >= 118.0 && lng <= 125.0 {
+		return 0.65
+	}
+	if lat >= -11.0 && lat <= 0.0 && lng >= 125.0 && lng <= 141.0 {
+		return 0.70
+	}
+	return 0.78
+}
+
+func getConditionText(wf float64) (string, string) {
+	if wf >= 0.9 {
+		return "cerah", "dampak ke produksi rendah, panel berpotensi menghasilkan energi optimal"
+	}
+	if wf >= 0.75 {
+		return "berawan", "dampak ke produksi ringan, output masih cukup baik"
+	}
+	if wf >= 0.6 {
+		return "mendung", "dampak ke produksi sedang, output cenderung turun dibanding hari cerah"
+	}
+	return "mendung tebal", "dampak ke produksi tinggi, output berpotensi turun signifikan"
 }

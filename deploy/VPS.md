@@ -1,6 +1,7 @@
 # VPS Deployment Guide
 
 Setup lengkap untuk deploy Solar Forecast ke 2 domain terpisah:
+
 - **Backend API**: `be-forecast.thingsid.com` → repo `solar-be`
 - **Frontend SPA**: `solar-forecast.thingsid.com` → repo `solar-fe`
 

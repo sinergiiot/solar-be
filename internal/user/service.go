@@ -15,6 +15,7 @@ type Service interface {
 	GetUserByID(id uuid.UUID) (*User, error)
 	GetAllUsers() ([]*User, error)
 	GetUserByEmail(email string) (*User, error)
+	MarkEmailVerified(id uuid.UUID) error
 }
 
 type service struct {
@@ -50,6 +51,8 @@ func (s *service) CreateUser(req CreateUserRequest) (*User, error) {
 		ID:                 uuid.New(),
 		Name:               strings.TrimSpace(req.Name),
 		Email:              strings.ToLower(strings.TrimSpace(req.Email)),
+		EmailVerified:      false,
+		EmailVerifiedAt:    nil,
 		PasswordHash:       string(passwordHash),
 		ForecastEfficiency: 0.8,
 		CreatedAt:          time.Now().UTC(),
@@ -78,4 +81,9 @@ func (s *service) GetUserByEmail(email string) (*User, error) {
 	}
 
 	return s.repo.GetUserByEmail(strings.ToLower(strings.TrimSpace(email)))
+}
+
+// MarkEmailVerified marks one user email as verified.
+func (s *service) MarkEmailVerified(id uuid.UUID) error {
+	return s.repo.MarkEmailVerified(id)
 }

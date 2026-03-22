@@ -4,12 +4,14 @@ MIGRATIONS_DIR := migrations
 POSTGRES_SERVICE := postgres
 POSTGRES_USER := solar_user
 POSTGRES_DB := solar_db
+BUILD_GOOS := linux
+BUILD_GOARCH := amd64
 
 run-api:
 	go run ./cmd/api
 
 build-api:
-	go build -o solar-forecast ./cmd/api
+	CGO_ENABLED=0 GOOS=$(BUILD_GOOS) GOARCH=$(BUILD_GOARCH) go build -o solar-be ./cmd/api
 
 migrate-up:
 	@set -a; . ./.env; set +a; \

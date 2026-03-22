@@ -18,8 +18,10 @@ import (
 type Service interface {
 	SendForecastEmail(payload EmailPayload) error
 	GetPreference(userID uuid.UUID) (*NotificationPreference, error)
+	GetAllPreferences() ([]*NotificationPreference, error)
 	UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest) (*NotificationPreference, error)
 	DispatchDailyForecast(payload DispatchPayload) error
+	MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error
 }
 
 type service struct {
@@ -83,6 +85,11 @@ func (s *service) GetPreference(userID uuid.UUID) (*NotificationPreference, erro
 	}
 
 	return created, nil
+}
+
+// GetAllPreferences returns all persisted notification preferences without creating defaults.
+func (s *service) GetAllPreferences() ([]*NotificationPreference, error) {
+	return s.repo.GetAllPreferences()
 }
 
 // UpsertPreference validates and stores one user's notification preference.
@@ -176,6 +183,11 @@ func (s *service) DispatchDailyForecast(payload DispatchPayload) error {
 	return fmt.Errorf("all notification channels failed: %s", strings.Join(errors, "; "))
 }
 
+// MarkDailyForecastSent records a successful scheduled delivery for one local forecast date.
+func (s *service) MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error {
+	return s.repo.MarkDailyForecastSent(userID, forecastDate, sentAt)
+}
+
 // SendForecastEmail composes and sends a daily solar forecast email to the user
 func (s *service) SendForecastEmail(payload EmailPayload) error {
 	m := gomail.NewMessage()
@@ -242,6 +254,8 @@ func (s *service) sendByChannel(channel string, pref *NotificationPreference, pa
 			ToEmail:          payload.ToEmail,
 			Date:             payload.Date,
 			PredictedKwh:     payload.PredictedKwh,
+			CloudCover:       payload.CloudCover,
+			BaselineType:     payload.BaselineType,
 			WeatherFactor:    payload.WeatherFactor,
 			Efficiency:       payload.Efficiency,
 			SolarProfileName: payload.SolarProfileName,
@@ -250,6 +264,10 @@ func (s *service) sendByChannel(channel string, pref *NotificationPreference, pa
 			DeviationPct:     payload.DeviationPct,
 			ReferenceLabel:   payload.ReferenceLabel,
 			WeatherRisk:      payload.WeatherRisk,
+			Lat:              payload.Lat,
+			Lng:              payload.Lng,
+			ConditionLabel:   payload.ConditionLabel,
+			ConditionImpact:  payload.ConditionImpact,
 		})
 	case ChannelTelegram:
 		return s.sendForecastTelegram(pref.TelegramChatID, payload)
@@ -270,10 +288,12 @@ func (s *service) sendForecastTelegram(chatID string, payload DispatchPayload) e
 	}
 
 	message := fmt.Sprintf(
-		"☀️ Forecast %s\n\nPrediksi energi: %.2f kWh\nWeather factor: %.2f\nEfficiency: %.1f%%\nTanggal forecast: %s\nSolar profile aktif: %s\nEstimasi hemat biaya: %s\nEstimasi CO2 dihindari: %.2f kgCO2\nDeviasi vs actual referensi: %s\nReferensi: %s\nStatus risiko cuaca: %s\n\nCara baca cepat:\n- Weather factor mendekati 1.00 berarti cuaca makin mendukung produksi.\n- Deviasi (+) artinya prediksi di atas actual referensi, deviasi (-) artinya di bawah actual referensi.\n- Efficiency adalah faktor performa sistem saat perhitungan forecast dilakukan.",
+		"☀️ Forecast %s\n\nPrediksi energi: %.2f kWh\nCloud Cover: %d%%\nWeather Factor (Transmittance): %.2f\nBaseline Type: %s\nEfficiency: %.1f%%\nTanggal forecast: %s\nSolar profile aktif: %s\nEstimasi hemat biaya: %s\nEstimasi CO2 dihindari: %.2f kgCO2\nDeviasi vs actual referensi: %s\nReferensi: %s\nStatus risiko cuaca: %s\n\nHari ini berdasarkan ramalan cuaca koordinat %.4f, %.4f, diprediksi %s, %s, dan estimasi produksi energi harian Anda sekitar %.2f kWh dengan potensi penghematan %s.",
 		payload.Date,
 		payload.PredictedKwh,
+		payload.CloudCover,
 		payload.WeatherFactor,
+		payload.BaselineType,
 		payload.Efficiency*100,
 		formatForecastDate(payload.Date),
 		emptyFallback(payload.SolarProfileName, "-"),
@@ -282,6 +302,12 @@ func (s *service) sendForecastTelegram(chatID string, payload DispatchPayload) e
 		formatDeviation(payload.DeviationPct),
 		emptyFallback(payload.ReferenceLabel, "actual referensi"),
 		payload.WeatherRisk,
+		payload.Lat,
+		payload.Lng,
+		payload.ConditionLabel,
+		payload.ConditionImpact,
+		payload.PredictedKwh,
+		formatCurrency(payload.EstimatedCost),
 	)
 
 	body := map[string]any{
@@ -320,10 +346,12 @@ func (s *service) sendForecastWhatsApp(phoneE164 string, payload DispatchPayload
 	}
 
 	message := fmt.Sprintf(
-		"☀️ Forecast %s\n\nPrediksi energi: %.2f kWh\nWeather factor: %.2f\nEfficiency: %.1f%%\nTanggal forecast: %s\nSolar profile aktif: %s\nEstimasi hemat biaya: %s\nEstimasi CO2 dihindari: %.2f kgCO2\nDeviasi vs actual referensi: %s\nReferensi: %s\nStatus risiko cuaca: %s\n\nCara baca cepat:\n- Weather factor mendekati 1.00 berarti cuaca makin mendukung produksi.\n- Deviasi (+) artinya prediksi di atas actual referensi, deviasi (-) artinya di bawah actual referensi.\n- Efficiency adalah faktor performa sistem saat perhitungan forecast dilakukan.",
+		"☀️ Forecast %s\n\nPrediksi energi: %.2f kWh\nCloud Cover: %d%%\nWeather Factor (Transmittance): %.2f\nBaseline Type: %s\nEfficiency: %.1f%%\nTanggal forecast: %s\nSolar profile aktif: %s\nEstimasi hemat biaya: %s\nEstimasi CO2 dihindari: %.2f kgCO2\nDeviasi vs actual referensi: %s\nReferensi: %s\nStatus risiko cuaca: %s\n\nHari ini berdasarkan ramalan cuaca koordinat %.4f, %.4f, diprediksi %s, %s, dan estimasi produksi energi harian Anda sekitar %.2f kWh dengan potensi penghematan %s.",
 		payload.Date,
 		payload.PredictedKwh,
+		payload.CloudCover,
 		payload.WeatherFactor,
+		payload.BaselineType,
 		payload.Efficiency*100,
 		formatForecastDate(payload.Date),
 		emptyFallback(payload.SolarProfileName, "-"),
@@ -332,6 +360,12 @@ func (s *service) sendForecastWhatsApp(phoneE164 string, payload DispatchPayload
 		formatDeviation(payload.DeviationPct),
 		emptyFallback(payload.ReferenceLabel, "actual referensi"),
 		payload.WeatherRisk,
+		payload.Lat,
+		payload.Lng,
+		payload.ConditionLabel,
+		payload.ConditionImpact,
+		payload.PredictedKwh,
+		formatCurrency(payload.EstimatedCost),
 	)
 
 	body := map[string]any{
@@ -446,61 +480,64 @@ func buildEmailBody(p EmailPayload) string {
 <body style="font-family: Arial, sans-serif; padding: 20px;">
   <h2>☀️ Daily Solar Forecast</h2>
   <p>Hi <strong>%s</strong>,</p>
-  <p>Here is your solar energy forecast report for <strong>%s</strong>:</p>
-  <table style="border-collapse: collapse; width: 300px;">
+  <p>Berikut adalah laporan harian dari profil <strong>%s</strong>:</p>
+  <table style="border-collapse: collapse; width: 400px; text-align: left;">
     <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Predicted Energy</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">Prediksi energi</td>
       <td style="padding: 8px; border: 1px solid #ddd;"><strong>%.2f kWh</strong></td>
     </tr>
     <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Weather Factor</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%.2f</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">Cloud Cover?</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%d%%</td>
     </tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Efficiency</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%.1f%%</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Tanggal Forecast</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Solar Profile Aktif</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Estimasi Hemat Biaya</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Estimasi CO2 Dihindari</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%.2f kgCO2</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Deviasi vs Actual Referensi</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Referensi</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-		</tr>
-		<tr>
-			<td style="padding: 8px; border: 1px solid #ddd;">Status Risiko Cuaca</td>
-			<td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-		</tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Weather Factor (Transmittance)?</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%.2f</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Baseline Type?</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Efficiency?</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%.1f%%</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Tanggal forecast</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Solar profile aktif</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Estimasi hemat biaya</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Estimasi CO2 dihindari?</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%.2f kgCO2</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Deviasi vs actual referensi?</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Referensi</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
+    <tr>
+      <td style="padding: 8px; border: 1px solid #ddd;">Status risiko cuaca</td>
+      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
+    </tr>
   </table>
   <br/>
-	<div style="padding: 12px 14px; border-radius: 10px; border: 1px solid #eee; background: #fafafa; max-width: 620px;">
-		<p style="margin: 0 0 8px; font-weight: 700;">Cara membaca angka report:</p>
-		<ul style="margin: 0; padding-left: 18px; color: #555;">
-			<li>Weather factor mendekati 1.00 berarti cuaca makin mendukung produksi.</li>
-			<li>Deviasi (+) berarti prediksi lebih tinggi dari actual referensi, deviasi (-) berarti lebih rendah.</li>
-			<li>Efficiency menunjukkan faktor performa sistem saat forecast dihitung.</li>
-		</ul>
-	</div>
-	<br/>
+  <p style="color: #333; line-height: 1.5; max-width: 600px;">
+    Hari ini berdasarkan ramalan cuaca koordinat %.4f, %.4f, diprediksi %s, %s, dan estimasi produksi energi harian Anda sekitar %.2f kWh dengan potensi penghematan %s.
+  </p>
+  <br/>
   <p style="color: #888; font-size: 12px;">Solar Forecast System — automated daily report</p>
 </body>
 </html>
-`, p.ToName, p.Date, p.PredictedKwh, p.WeatherFactor, p.Efficiency*100, forecastDate, solarProfile, formatCurrency(p.EstimatedCost), p.EstimatedCO2Kg, deviation, reference, p.WeatherRisk)
+`, p.ToName, solarProfile, p.PredictedKwh, p.CloudCover, p.WeatherFactor, p.BaselineType, p.Efficiency*100, forecastDate, solarProfile, formatCurrency(p.EstimatedCost), p.EstimatedCO2Kg, deviation, reference, p.WeatherRisk, p.Lat, p.Lng, p.ConditionLabel, p.ConditionImpact, p.PredictedKwh, formatCurrency(p.EstimatedCost))
 }

@@ -26,6 +26,8 @@ type EmailPayload struct {
 	ToEmail            string
 	Date               string
 	PredictedKwh       float64
+	CloudCover         int
+	BaselineType       string
 	WeatherFactor      float64
 	Efficiency         float64
 	SolarProfileName   string
@@ -34,6 +36,10 @@ type EmailPayload struct {
 	DeviationPct       *float64
 	ReferenceLabel     string
 	WeatherRisk        string
+	Lat                float64
+	Lng                float64
+	ConditionLabel     string
+	ConditionImpact    string
 }
 
 // DispatchPayload holds one forecast notification payload independent of delivery channel.
@@ -43,6 +49,8 @@ type DispatchPayload struct {
 	ToEmail          string
 	Date             string
 	PredictedKwh     float64
+	CloudCover       int
+	BaselineType     string
 	WeatherFactor    float64
 	Efficiency       float64
 	SolarProfileName string
@@ -51,6 +59,10 @@ type DispatchPayload struct {
 	EstimatedCO2Kg   float64
 	DeviationPct     *float64
 	ReferenceLabel   string
+	Lat              float64
+	Lng              float64
+	ConditionLabel   string
+	ConditionImpact  string
 }
 
 // NotificationPreference stores per-user channel settings.
@@ -66,6 +78,8 @@ type NotificationPreference struct {
 	WhatsAppOptedIn   bool      `json:"whatsapp_opted_in"`
 	Timezone          string    `json:"timezone"`
 	PreferredSendTime string    `json:"preferred_send_time"`
+	LastDailyForecastSentAt      *time.Time `json:"last_daily_forecast_sent_at,omitempty"`
+	LastDailyForecastSentForDate *time.Time `json:"last_daily_forecast_sent_for_date,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }

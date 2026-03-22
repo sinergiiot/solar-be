@@ -14,7 +14,10 @@ type Forecast struct {
 	Date           time.Time  `json:"date"`
 	PredictedKwh   float64    `json:"predicted_kwh"`
 	WeatherFactor  float64    `json:"weather_factor"`
+	CloudCover     int        `json:"cloud_cover"`
 	Efficiency     float64    `json:"efficiency"`
+	DeltaWF        float64    `json:"delta_wf"`
+	BaselineType   string     `json:"baseline_type"`
 	CreatedAt      time.Time  `json:"created_at"`
 }
 
