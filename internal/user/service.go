@@ -16,6 +16,7 @@ type Service interface {
 	GetAllUsers() ([]*User, error)
 	GetUserByEmail(email string) (*User, error)
 	MarkEmailVerified(id uuid.UUID) error
+	UpdatePassword(id uuid.UUID, plainPassword string) error
 }
 
 type service struct {
@@ -86,4 +87,18 @@ func (s *service) GetUserByEmail(email string) (*User, error) {
 // MarkEmailVerified marks one user email as verified.
 func (s *service) MarkEmailVerified(id uuid.UUID) error {
 	return s.repo.MarkEmailVerified(id)
+}
+
+// UpdatePassword hashes and updates the password for one user.
+func (s *service) UpdatePassword(id uuid.UUID, plainPassword string) error {
+	if len(strings.TrimSpace(plainPassword)) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	return s.repo.UpdatePassword(id, string(passwordHash))
 }

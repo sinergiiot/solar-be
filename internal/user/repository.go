@@ -14,6 +14,7 @@ type Repository interface {
 	GetAllUsers() ([]*User, error)
 	GetUserByEmail(email string) (*User, error)
 	MarkEmailVerified(id uuid.UUID) error
+	UpdatePassword(id uuid.UUID, passwordHash string) error
 }
 
 type repository struct {
@@ -89,6 +90,17 @@ func (r *repository) MarkEmailVerified(id uuid.UUID) error {
 	_, err := r.db.Exec(query, id)
 	if err != nil {
 		return fmt.Errorf("mark email verified: %w", err)
+	}
+
+	return nil
+}
+
+// UpdatePassword updates the password hash for one user.
+func (r *repository) UpdatePassword(id uuid.UUID, passwordHash string) error {
+	query := `UPDATE users SET password_hash = $1 WHERE id = $2`
+	_, err := r.db.Exec(query, passwordHash, id)
+	if err != nil {
+		return fmt.Errorf("update user password: %w", err)
 	}
 
 	return nil

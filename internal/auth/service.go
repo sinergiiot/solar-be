@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net"
 	"net/mail"
@@ -28,12 +29,15 @@ type Service interface {
 	ParseToken(token string) (uuid.UUID, error)
 	RefreshTokens(refreshToken string) (accessToken, newRefreshToken string, err error)
 	RevokeRefreshToken(refreshToken string) error
+	ForgotPassword(email string) error
+	ResetPassword(email, code, newPassword string) error
 }
 
 type service struct {
 	userService            user.Service
 	refreshRepo            *refreshTokenRepository
 	verificationRepo       *emailVerificationRepository
+	passwordResetRepo      *passwordResetRepository
 	jwtSecret              []byte
 	tokenExpiryHours       int
 	refreshTokenExpiryDays int
@@ -68,6 +72,7 @@ func NewService(
 		userService:            userService,
 		refreshRepo:            newRefreshTokenRepository(db),
 		verificationRepo:       newEmailVerificationRepository(db),
+		passwordResetRepo:      newPasswordResetRepository(db),
 		jwtSecret:              []byte(jwtSecret),
 		tokenExpiryHours:       tokenExpiryHours,
 		refreshTokenExpiryDays: refreshTokenExpiryDays,
@@ -372,6 +377,90 @@ func (s *service) RefreshTokens(refreshToken string) (string, string, error) {
 // RevokeRefreshToken marks a refresh token as revoked (used on logout).
 func (s *service) RevokeRefreshToken(refreshToken string) error {
 	return s.refreshRepo.Revoke(refreshToken)
+}
+
+// ForgotPassword generates a reset code and sends it via email.
+func (s *service) ForgotPassword(email string) error {
+	u, err := s.userService.GetUserByEmail(email)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("account with this email not found")
+		}
+		return err
+	}
+
+	if s.smtpHost == "" || s.smtpUsername == "" || s.smtpPassword == "" || s.smtpFrom == "" {
+		return fmt.Errorf("password reset is unavailable: SMTP configuration is incomplete")
+	}
+
+	code, err := generateOTPCode()
+	if err != nil {
+		return fmt.Errorf("generate reset code: %w", err)
+	}
+
+	if err := s.passwordResetRepo.InvalidateAllByUser(u.ID); err != nil {
+		return fmt.Errorf("invalidate previous reset codes: %w", err)
+	}
+
+	expiresAt := time.Now().UTC().Add(30 * time.Minute)
+	if err := s.passwordResetRepo.Create(u.ID, code, expiresAt); err != nil {
+		return fmt.Errorf("store reset code: %w", err)
+	}
+
+	message := gomail.NewMessage()
+	message.SetHeader("From", s.smtpFrom)
+	message.SetHeader("To", u.Email)
+	message.SetHeader("Subject", "Solar Forecast - Reset Password")
+	message.SetBody("text/plain", fmt.Sprintf("Halo %s,\n\nKami menerima permintaan untuk reset password akun Solar Forecast Anda.\nKode reset Anda adalah: %s\nKode berlaku sampai %s (UTC).\n\nJika Anda tidak merasa melakukan permintaan ini, abaikan email ini.", u.Name, code, expiresAt.Format("15:04:05 2006-01-02")))
+
+	dialer := gomail.NewDialer(s.smtpHost, s.smtpPort, s.smtpUsername, s.smtpPassword)
+	if err := dialer.DialAndSend(message); err != nil {
+		return fmt.Errorf("failed to deliver reset email: %w", err)
+	}
+
+	return nil
+}
+
+// ResetPassword validates OTP and updates user password.
+func (s *service) ResetPassword(email, code, newPassword string) error {
+	u, err := s.userService.GetUserByEmail(email)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("account not found")
+		}
+		return err
+	}
+
+	normalizedCode := strings.TrimSpace(code)
+	if len(normalizedCode) != 6 {
+		return fmt.Errorf("verification code must be 6 digits")
+	}
+
+	row, err := s.passwordResetRepo.FindLatestByUserAndCode(u.ID, normalizedCode)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("reset code is invalid")
+		}
+		return fmt.Errorf("check reset code: %w", err)
+	}
+
+	if row.usedAt.Valid {
+		return fmt.Errorf("reset code has been used")
+	}
+
+	if time.Now().UTC().After(row.expiresAt) {
+		return fmt.Errorf("reset code has expired")
+	}
+
+	if err := s.userService.UpdatePassword(u.ID, newPassword); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	if err := s.passwordResetRepo.MarkCodeUsed(u.ID, normalizedCode); err != nil {
+		log.Printf("failed to mark reset code as used for user %s: %v", u.ID, err)
+	}
+
+	return nil
 }
 
 // issueRefreshToken creates and stores a new refresh token for the given user.
