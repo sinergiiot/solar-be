@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -130,6 +131,12 @@ func (s *service) generateForecastForProfile(userID uuid.UUID, solarProfileID uu
 
 	// DEBUG LOG: print all calculation inputs and outputs
 	predictedKwh := profile.CapacityKwp * psh * efficiency * deltaRes.DeltaWF
+	// HARD CAP: cannot exceed 95% of theoretical max
+	theoreticalMax := profile.CapacityKwp * psh * 0.95
+	predictedKwh = math.Min(predictedKwh, theoreticalMax)
+	if predictedKwh < 0 {
+		predictedKwh = 0
+	}
 
 	log.Println("[DEBUG] Forecast calculation:")
 	log.Println("  user_id:", userID)
@@ -150,8 +157,8 @@ f := &Forecast{
 	SolarProfileID: &profile.ID,
 	Date:           date,
 	PredictedKwh:   predictedKwh,
-	WeatherFactor:  deltaRes.DeltaWF,  // transmittance
-	CloudCover:     w.CloudCover,      // fix: store actual cloud cover
+	WeatherFactor:  deltaRes.WeatherFactor, // correct weather factor (not deltaWF)
+	CloudCover:     int(w.CloudCover),      // store as percent int
 	Efficiency:     efficiency,
 	DeltaWF:        deltaRes.DeltaWF,
 	BaselineType:   deltaRes.BaselineType,

@@ -14,6 +14,7 @@ import (
 // baselineType: 'synthetic' | 'site' | 'blended'
 type DeltaWFResult struct {
 	DeltaWF      float64
+	WeatherFactor float64 // actual (1 - cloudCover/100)
 	BaselineType string
 }
 
@@ -62,19 +63,24 @@ func ComputeDeltaWF(ctx context.Context, repo countActualDaysRepo, wbSvc weather
 	if err != nil {
 		return DeltaWFResult{}, fmt.Errorf("get baseline: %w", err)
 	}
-	if baseline >= 95 {
-		// fallback to absolute
-		return DeltaWFResult{
-			DeltaWF: 1 - cloudCoverToday/100,
-			BaselineType: baselineType,
-		}, nil
-	}
-	deltaWF := (1 - cloudCoverToday/100) / (1 - baseline/100)
-	deltaWF = clamp(deltaWF, 0.5, 1.5)
-	return DeltaWFResult{
-		DeltaWF:      deltaWF,
-		BaselineType: baselineType,
-	}, nil
+	       if baseline >= 95 {
+		       // fallback to absolute
+		       wf := 1 - cloudCoverToday/100
+		       return DeltaWFResult{
+			       DeltaWF: wf,
+			       WeatherFactor: wf,
+			       BaselineType: baselineType,
+		       }, nil
+	       }
+	       wf := 1 - cloudCoverToday/100
+	       deltaWF := wf / (1 - baseline/100)
+	       // Clamp deltaWF tighter: max 1.1 (was 1.5)
+	       deltaWF = clamp(deltaWF, 0.5, 1.1)
+	       return DeltaWFResult{
+		       DeltaWF:      deltaWF,
+		       WeatherFactor: wf,
+		       BaselineType: baselineType,
+	       }, nil
 }
 
 func clamp(val, min, max float64) float64 {

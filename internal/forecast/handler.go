@@ -58,16 +58,16 @@ func (h *Handler) GetTodayForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user_id":          f.UserID,
-		"solar_profile_id": f.SolarProfileID,
-		"date":             f.Date.Format(time.DateOnly),
-		"predicted_kwh":    f.PredictedKwh,
-		"cloud_cover":      float64(f.CloudCover), // always float64 for JSON
-		"weather_factor":   float64(f.DeltaWF),    // always float64 for JSON
-		"baseline_type":    f.BaselineType,
-		"efficiency":       f.Efficiency,
-	})
+	       writeJSON(w, http.StatusOK, map[string]any{
+		       "user_id":          f.UserID,
+		       "solar_profile_id": f.SolarProfileID,
+		       "date":             f.Date.Format(time.DateOnly),
+		       "predicted_kwh":    f.PredictedKwh,
+		       "cloud_cover":      float64(f.CloudCover), // percent (0-100)
+		       "weather_factor":   f.WeatherFactor,       // transmittance (0-1)
+		       "baseline_type":    f.BaselineType,
+		       "efficiency":       f.Efficiency,
+	       })
 }
 
 // RecordActualDaily handles POST /forecast/actual.
