@@ -13,15 +13,47 @@ type contextKey string
 const (
 	UserIDContextKey contextKey = "auth_user_id"
 	RoleContextKey   contextKey = "auth_user_role"
+	IsAPIKeyContextKey contextKey = "auth_is_api_key"
 )
 
-// Middleware validates bearer tokens and injects user id into request context.
-func Middleware(authService Service) func(http.Handler) http.Handler {
+// APIKeyValidator defines the interface needed to validate API keys without circular dependency
+type APIKeyValidator interface {
+	ValidateKey(key string) (uuid.UUID, string, error)
+}
+
+// ServiceBridge implements APIKeyValidator for the middleware
+type ServiceBridge struct {
+	ValidateFn func(key string) (uuid.UUID, string, error)
+}
+
+func (b *ServiceBridge) ValidateKey(key string) (uuid.UUID, string, error) {
+	return b.ValidateFn(key)
+}
+
+// Middleware validates bearer tokens or API keys and injects user info into request context.
+func Middleware(authService Service, apiKeyValidator APIKeyValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 1. Try API Key first (X-API-Key header)
+			apiKey := r.Header.Get("X-API-Key")
+			if apiKey != "" && apiKeyValidator != nil {
+				userID, role, err := apiKeyValidator.ValidateKey(apiKey)
+				if err == nil {
+					ctx := context.WithValue(r.Context(), UserIDContextKey, userID)
+					ctx = context.WithValue(ctx, RoleContextKey, role)
+					ctx = context.WithValue(ctx, IsAPIKeyContextKey, true)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				// If API key is provided but invalid, we fail early
+				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid api key"})
+				return
+			}
+
+			// 2. Try Bearer Token
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing authorization header"})
+				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing authorization header or api key"})
 				return
 			}
 
@@ -38,11 +70,9 @@ func Middleware(authService Service) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDContextKey, userID)
-			// Note: We only have userID from token. 
-			// To avoid DB call in middleware for every request, we SHOULD bake role into JWT.
-			// Let's update buildAccessToken to include role.
 			role, _ := claims["role"].(string)
 			ctx = context.WithValue(ctx, RoleContextKey, role)
+			ctx = context.WithValue(ctx, IsAPIKeyContextKey, false)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

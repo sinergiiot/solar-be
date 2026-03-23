@@ -26,6 +26,7 @@ import (
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weatherbaseline"
+	"github.com/akbarsenawijaya/solar-forecast/internal/apikey"
 	"github.com/akbarsenawijaya/solar-forecast/pkg/utils"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -56,6 +57,7 @@ func main() {
 	weatherBaselineRepo := weatherbaseline.NewRepository(db)
 	billingRepo := billing.NewRepository(db)
 	recRepo := rec.NewRepository(db)
+	apiKeyRepo := apikey.NewRepository(db)
 
 	// Wire services
 	userSvc := user.NewService(userRepo)
@@ -96,6 +98,7 @@ func main() {
 	billingSvc := billing.NewService(billingRepo)
 	reportSvc := report.NewService(forecastSvc, solarSvc)
 	adminSvc := admin.NewService(db, userSvc)
+	apiKeySvc := apikey.NewService(apiKeyRepo, userSvc)
 
 	// Start the daily forecast scheduler
 	sched := scheduler.New(userSvc, solarSvc, forecastSvc, notifSvc, billingSvc)
@@ -118,7 +121,10 @@ func main() {
 	deviceHandler.RegisterPublicRoutes(r)
 
 	r.Group(func(protected chi.Router) {
-		protected.Use(auth.Middleware(authSvc))
+		apiKeyValidator := &auth.ServiceBridge{
+			ValidateFn: apiKeySvc.ValidateKey,
+		}
+		protected.Use(auth.Middleware(authSvc, apiKeyValidator))
 		protected.Use(tier.TierMiddleware(notifRepo, auth.UserIDFromContext))
 
 		authHandler.RegisterProtectedRoutes(protected)
@@ -129,6 +135,7 @@ func main() {
 		billingHandler.RegisterRoutes(protected)
 		reportHandler.RegisterRoutes(protected)
 		adminHandler.RegisterRoutes(protected)
+		apikey.NewHandler(apiKeySvc).RegisterRoutes(protected)
 	})
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
