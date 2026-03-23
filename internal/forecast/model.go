@@ -17,8 +17,9 @@ type Forecast struct {
 	CloudCover     int        `json:"cloud_cover"`
 	Efficiency     float64    `json:"efficiency"`
 	DeltaWF        float64    `json:"delta_wf"`
-	BaselineType   string     `json:"baseline_type"`
-	CreatedAt      time.Time  `json:"created_at"`
+	BaselineType      string     `json:"baseline_type"`
+	WeatherRiskStatus string     `json:"weather_risk_status"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 // ActualDaily represents actual measured energy for one user and one date.

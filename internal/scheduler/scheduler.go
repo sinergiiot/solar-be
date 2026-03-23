@@ -192,12 +192,7 @@ func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, da
 		}
 	}
 
-	weatherRisk := "Risiko Cuaca Tinggi"
-	if result.WeatherFactor >= 0.9 {
-		weatherRisk = "Risiko Cuaca Rendah"
-	} else if result.WeatherFactor >= 0.7 {
-		weatherRisk = "Risiko Cuaca Sedang"
-	}
+	weatherRisk := forecast.DetermineWeatherRisk(int(result.CloudCover), result.DeltaWF)
 
 	conditionLabel, conditionImpact := getConditionText(result.WeatherFactor)
 	baselineType := result.BaselineType

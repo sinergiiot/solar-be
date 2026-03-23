@@ -151,19 +151,22 @@ func (s *service) generateForecastForProfile(userID uuid.UUID, solarProfileID uu
 	log.Println("  delta_wf:", deltaRes.DeltaWF)
 	log.Println("  predicted_kwh:", predictedKwh)
 
-f := &Forecast{
-	ID:             uuid.New(),
-	UserID:         userID,
-	SolarProfileID: &profile.ID,
-	Date:           date,
-	PredictedKwh:   predictedKwh,
-	WeatherFactor:  deltaRes.WeatherFactor, // correct weather factor (not deltaWF)
-	CloudCover:     int(w.CloudCover),      // store as percent int
-	Efficiency:     efficiency,
-	DeltaWF:        deltaRes.DeltaWF,
-	BaselineType:   deltaRes.BaselineType,
-	CreatedAt:      time.Now().UTC(),
-}
+	riskStatus := DetermineWeatherRisk(int(w.CloudCover), deltaRes.DeltaWF)
+
+	f := &Forecast{
+		ID:                uuid.New(),
+		UserID:            userID,
+		SolarProfileID:    &profile.ID,
+		Date:              date,
+		PredictedKwh:      predictedKwh,
+		WeatherFactor:     deltaRes.WeatherFactor, // correct weather factor (not deltaWF)
+		CloudCover:        int(w.CloudCover),      // store as percent int
+		Efficiency:        efficiency,
+		DeltaWF:           deltaRes.DeltaWF,
+		BaselineType:      deltaRes.BaselineType,
+		WeatherRiskStatus: riskStatus,
+		CreatedAt:         time.Now().UTC(),
+	}
 
 	if err := s.repo.SaveForecast(f); err != nil {
 		return nil, err

@@ -58,16 +58,17 @@ func (h *Handler) GetTodayForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	       writeJSON(w, http.StatusOK, map[string]any{
-		       "user_id":          f.UserID,
-		       "solar_profile_id": f.SolarProfileID,
-		       "date":             f.Date.Format(time.DateOnly),
-		       "predicted_kwh":    f.PredictedKwh,
-		       "cloud_cover":      float64(f.CloudCover), // percent (0-100)
-		       "weather_factor":   f.WeatherFactor,       // transmittance (0-1)
-		       "baseline_type":    f.BaselineType,
-		       "efficiency":       f.Efficiency,
-	       })
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user_id":             f.UserID,
+		"solar_profile_id":    f.SolarProfileID,
+		"date":                f.Date.Format(time.DateOnly),
+		"predicted_kwh":       f.PredictedKwh,
+		"cloud_cover_mean":    float64(f.CloudCover),
+		"weather_factor":      f.WeatherFactor,
+		"baseline_type":       f.BaselineType,
+		"efficiency":          f.Efficiency,
+		"weather_risk_status": f.WeatherRiskStatus,
+	})
 }
 
 // RecordActualDaily handles POST /forecast/actual.
@@ -125,15 +126,17 @@ func (h *Handler) GetForecastHistory(w http.ResponseWriter, r *http.Request) {
 
 	var result []map[string]any
 	for _, f := range forecasts {
-		   result = append(result, map[string]any{
-			   "date":             f.Date.Format(time.DateOnly),
-			   "solar_profile_id": f.SolarProfileID,
-			   "predicted_kwh":    f.PredictedKwh,
-			   "cloud_cover_mean": f.WeatherFactor, // percent (0-100)
-			   "transmittance":    f.DeltaWF,       // delta_wf (0-1), actual weather factor used
-			   "baseline_type":    f.BaselineType,  // synthetic/site
-			   "efficiency":       f.Efficiency,
-		   })
+		result = append(result, map[string]any{
+			"date":                f.Date.Format(time.DateOnly),
+			"solar_profile_id":    f.SolarProfileID,
+			"predicted_kwh":       f.PredictedKwh,
+			"cloud_cover_mean":    float64(f.CloudCover),
+			"weather_factor":      f.WeatherFactor,
+			"delta_wf":            f.DeltaWF,
+			"baseline_type":       f.BaselineType,
+			"efficiency":          f.Efficiency,
+			"weather_risk_status": f.WeatherRiskStatus,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

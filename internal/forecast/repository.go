@@ -49,15 +49,18 @@ func NewRepository(db *sql.DB) Repository {
 // SaveForecast inserts or updates a forecast for a user on a given date
 func (r *repository) SaveForecast(f *Forecast) error {
 	query := `
-		INSERT INTO forecasts (id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO forecasts (id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, cloud_cover, efficiency, delta_wf, baseline_type, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (user_id, solar_profile_id, date) DO UPDATE
 			SET predicted_kwh  = EXCLUDED.predicted_kwh,
 			    weather_factor = EXCLUDED.weather_factor,
-			    efficiency     = EXCLUDED.efficiency
+                cloud_cover    = EXCLUDED.cloud_cover,
+			    efficiency     = EXCLUDED.efficiency,
+                delta_wf       = EXCLUDED.delta_wf,
+                baseline_type  = EXCLUDED.baseline_type
 	`
 	normalizedDate := normalizeDate(f.Date)
-	_, err := r.db.Exec(query, f.ID, f.UserID, f.SolarProfileID, normalizedDate, f.PredictedKwh, f.WeatherFactor, f.Efficiency, f.CreatedAt)
+	_, err := r.db.Exec(query, f.ID, f.UserID, f.SolarProfileID, normalizedDate, f.PredictedKwh, f.WeatherFactor, f.CloudCover, f.Efficiency, f.DeltaWF, f.BaselineType, f.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save forecast: %w", err)
 	}
@@ -67,13 +70,13 @@ func (r *repository) SaveForecast(f *Forecast) error {
 // GetForecastByUserAndDate retrieves the forecast for a specific user and date
 func (r *repository) GetForecastByUserAndDate(userID uuid.UUID, solarProfileID uuid.UUID, date time.Time) (*Forecast, error) {
 	query := `
-		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at
+		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, cloud_cover, efficiency, delta_wf, baseline_type, created_at
 		FROM forecasts WHERE user_id = $1 AND solar_profile_id = $2 AND date = $3
 	`
 	row := r.db.QueryRow(query, userID, solarProfileID, normalizeDate(date))
 
 	f := &Forecast{}
-	if err := row.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt); err != nil {
+	if err := row.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.CloudCover, &f.Efficiency, &f.DeltaWF, &f.BaselineType, &f.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get forecast: %w", err)
 	}
 	return f, nil
@@ -82,7 +85,7 @@ func (r *repository) GetForecastByUserAndDate(userID uuid.UUID, solarProfileID u
 // GetAllForecastsByDate returns all forecasts generated for a given date
 func (r *repository) GetAllForecastsByDate(date time.Time) ([]*Forecast, error) {
 	query := `
-		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at
+		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, cloud_cover, efficiency, delta_wf, baseline_type, created_at
 		FROM forecasts WHERE date = $1
 	`
 	rows, err := r.db.Query(query, normalizeDate(date))
@@ -94,7 +97,7 @@ func (r *repository) GetAllForecastsByDate(date time.Time) ([]*Forecast, error) 
 	var forecasts []*Forecast
 	for rows.Next() {
 		f := &Forecast{}
-		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.CloudCover, &f.Efficiency, &f.DeltaWF, &f.BaselineType, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan forecast: %w", err)
 		}
 		forecasts = append(forecasts, f)
@@ -183,7 +186,7 @@ func (r *repository) GetForecastHistoryByUser(userID uuid.UUID, days int, filter
 	args := []any{userID, days}
 	b := strings.Builder{}
 	b.WriteString(`
-		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, efficiency, created_at
+		SELECT id, user_id, solar_profile_id, date, predicted_kwh, weather_factor, cloud_cover, efficiency, delta_wf, baseline_type, created_at
 		FROM forecasts
 		WHERE user_id = $1 AND date >= NOW() - INTERVAL '1 day' * $2
 	`)
@@ -212,7 +215,7 @@ func (r *repository) GetForecastHistoryByUser(userID uuid.UUID, days int, filter
 	forecasts := []*Forecast{}
 	for rows.Next() {
 		f := &Forecast{}
-		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.Efficiency, &f.CreatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.UserID, &f.SolarProfileID, &f.Date, &f.PredictedKwh, &f.WeatherFactor, &f.CloudCover, &f.Efficiency, &f.DeltaWF, &f.BaselineType, &f.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan forecast row: %w", err)
 		}
 		forecasts = append(forecasts, f)
