@@ -8,23 +8,23 @@ Prinsip utama: **Free tier harus cukup berguna** agar user mau mendaftar dan akt
 
 ## Matriks Fitur per Tier
 
-| Fitur | 🆓 Free | ⭐ Pro (Rp 99rb/bln) | 🏢 Enterprise (Rp 499rb/bln) |
-|---|:---:|:---:|:---:|
-| **Solar Profile** | 1 site | 5 site | Unlimited |
-| **Device IoT** | 1 device | 10 device | Unlimited |
-| **Forecast Harian** | ✅ | ✅ | ✅ |
-| **History Forecast** | 7 hari terakhir | 90 hari | Unlimited + Export CSV |
-| **History Actual** | 7 hari terakhir | 90 hari | Unlimited + Export CSV |
-| **Notifikasi Email** | ✅ (1x/hari) | ✅ (1x/hari) | ✅ (1x/hari) |
-| **Notifikasi Telegram** | ❌ | ✅ | ✅ |
-| **Notifikasi WhatsApp** | ❌ | ✅ | ✅ |
-| **Weather Risk Status** | ✅ (label saja) | ✅ + Rekomendasi aksi | ✅ + Rekomendasi aksi |
-| **Estimasi Produksi per Periode** | ✅ (Pagi/Siang/Sore) | ✅ + Trend mingguan | ✅ + Trend bulanan |
-| **Laporan ESG / CO₂** | Angka di dashboard | PDF bulanan otomatis | PDF + White-label logo |
-| **Soiling Detection** | ❌ | ❌ | ✅ (alert otomatis) |
-| **Fleet Dashboard (Multi-site Map)** | ❌ | ❌ | ✅ |
-| **API Access (Eksternal)** | ❌ | Rate-limited | Full access |
-| **Priority Support** | Community/GitHub | Email 48 jam | Dedicated WA 4 jam |
+| Fitur                                |       🆓 Free        | ⭐ Pro (Rp 99rb/bln)  | 🏢 Enterprise (Rp 499rb/bln) |
+| ------------------------------------ | :------------------: | :-------------------: | :--------------------------: |
+| **Solar Profile**                    |        1 site        |        5 site         |          Unlimited           |
+| **Device IoT**                       |       1 device       |       10 device       |          Unlimited           |
+| **Forecast Harian**                  |          ✅          |          ✅           |              ✅              |
+| **History Forecast**                 |   7 hari terakhir    |        90 hari        |    Unlimited + Export CSV    |
+| **History Actual**                   |   7 hari terakhir    |        90 hari        |    Unlimited + Export CSV    |
+| **Notifikasi Email**                 |     ✅ (1x/hari)     |     ✅ (1x/hari)      |         ✅ (1x/hari)         |
+| **Notifikasi Telegram**              |          ❌          |          ✅           |              ✅              |
+| **Notifikasi WhatsApp**              |          ❌          |          ✅           |              ✅              |
+| **Weather Risk Status**              |   ✅ (label saja)    | ✅ + Rekomendasi aksi |    ✅ + Rekomendasi aksi     |
+| **Estimasi Produksi per Periode**    | ✅ (Pagi/Siang/Sore) |  ✅ + Trend mingguan  |      ✅ + Trend bulanan      |
+| **Laporan ESG / CO₂**                |  Angka di dashboard  | PDF bulanan otomatis  |    PDF + White-label logo    |
+| **Soiling Detection**                |          ❌          |          ❌           |     ✅ (alert otomatis)      |
+| **Fleet Dashboard (Multi-site Map)** |          ❌          |          ❌           |              ✅              |
+| **API Access (Eksternal)**           |          ❌          |     Rate-limited      |         Full access          |
+| **Priority Support**                 |   Community/GitHub   |     Email 48 jam      |      Dedicated WA 4 jam      |
 
 ---
 
@@ -33,6 +33,7 @@ Prinsip utama: **Free tier harus cukup berguna** agar user mau mendaftar dan akt
 Kabar baiknya, **fondasi kode sudah mendukung** skema tier ini:
 
 ### ✅ Sudah Ada di Codebase
+
 1. **`plan_tier` field** — Tersimpan di tabel `notification_preferences` (`free` / `paid`). Validasi sudah ada di [notification/service.go](file:///Users/akbarsenawijaya/Akbar-WIT/forcast-solar-panel/internal/notification/service.go).
 2. **Multi-profile & Multi-device** — Skema DB sudah mendukung banyak `solar_profiles` dan `devices` per user.
 3. **Multi-channel notification** — Email, Telegram, WhatsApp sudah terintegrasi native.
@@ -41,16 +42,16 @@ Kabar baiknya, **fondasi kode sudah mendukung** skema tier ini:
 
 ### 🔧 Perlu Dibangun (Effort Estimation)
 
-| Komponen | Estimasi | Prioritas |
-|---|---|---|
-| **Tier Enforcement Middleware** | 2-3 hari | 🔴 Tinggi |
-| **Billing/Payment Integration** | 5-7 hari | 🔴 Tinggi |
-| **History Day-Limit per Tier** | 1 hari | 🟡 Sedang |
-| **Profile/Device Count Limit** | 1 hari | 🟡 Sedang |
-| **CSV Export** | 2 hari | 🟡 Sedang |
-| **PDF ESG Report Generator** | 3-5 hari | 🟢 Rendah (Phase 2) |
-| **Fleet Dashboard / Map View** | 5-7 hari | 🟢 Rendah (Phase 2) |
-| **Upgrade/Downgrade UI** | 2-3 hari | 🔴 Tinggi |
+| Komponen                        | Estimasi | Prioritas           |
+| ------------------------------- | -------- | ------------------- |
+| **Tier Enforcement Middleware** | 2-3 hari | 🔴 Tinggi           |
+| **Billing/Payment Integration** | 5-7 hari | 🔴 Tinggi           |
+| **History Day-Limit per Tier**  | 1 hari   | 🟡 Sedang           |
+| **Profile/Device Count Limit**  | 1 hari   | 🟡 Sedang           |
+| **CSV Export**                  | 2 hari   | 🟡 Sedang           |
+| **PDF ESG Report Generator**    | 3-5 hari | 🟢 Rendah (Phase 2) |
+| **Fleet Dashboard / Map View**  | 5-7 hari | 🟢 Rendah (Phase 2) |
+| **Upgrade/Downgrade UI**        | 2-3 hari | 🔴 Tinggi           |
 
 ---
 
@@ -61,7 +62,7 @@ Kabar baiknya, **fondasi kode sudah mendukung** skema tier ini:
 **Goal:** Memisahkan `free` vs [pro](file:///Users/akbarsenawijaya/Akbar-WIT/forcast-solar-panel/internal/scheduler/scheduler.go#164-232) vs `enterprise` secara teknis.
 
 1. **Extend `plan_tier`** — Ubah validasi dari hanya `free|paid` menjadi `free|pro|enterprise`.
-2. **Tier Enforcement Middleware** — Buat Go middleware yang membaca `plan_tier` dari user context dan men-*gate* akses ke fitur tertentu.
+2. **Tier Enforcement Middleware** — Buat Go middleware yang membaca `plan_tier` dari user context dan men-_gate_ akses ke fitur tertentu.
 3. **Limit Solar Profile** — Tambahkan pengecekan jumlah profile saat `POST /solar-profiles`.
 4. **Limit Device** — Tambahkan pengecekan jumlah device saat `POST /devices`.
 5. **Limit History Days** — Filter query history berdasarkan tier (7/90/unlimited hari).
@@ -92,13 +93,13 @@ Kabar baiknya, **fondasi kode sudah mendukung** skema tier ini:
 
 ### Trigger Points (Kapan user terdorong upgrade)
 
-| Momen | Nudge |
-|---|---|
-| User mencoba tambah profile ke-2 | _"Upgrade ke Pro untuk mengelola hingga 5 site."_ |
-| User buka history > 7 hari | _"Lihat data historis hingga 90 hari dengan Pro."_ |
-| User enable Telegram/WA notification | _"Notifikasi multi-channel tersedia di paket Pro."_ |
-| 30 hari setelah registrasi | Email: _"Anda sudah menghemat Rp X dari forecast kami. Tingkatkan akurasi monitoring Anda."_ |
-| User klik tombol Export | _"Export CSV tersedia di paket Pro."_ |
+| Momen                                | Nudge                                                                                        |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- |
+| User mencoba tambah profile ke-2     | _"Upgrade ke Pro untuk mengelola hingga 5 site."_                                            |
+| User buka history > 7 hari           | _"Lihat data historis hingga 90 hari dengan Pro."_                                           |
+| User enable Telegram/WA notification | _"Notifikasi multi-channel tersedia di paket Pro."_                                          |
+| 30 hari setelah registrasi           | Email: _"Anda sudah menghemat Rp X dari forecast kami. Tingkatkan akurasi monitoring Anda."_ |
+| User klik tombol Export              | _"Export CSV tersedia di paket Pro."_                                                        |
 
 ### Pricing Psychology
 
@@ -107,18 +108,18 @@ Kabar baiknya, **fondasi kode sudah mendukung** skema tier ini:
 - **Enterprise** → Rp 499.000/bulan (atau custom quote) → Target: EPC, Pabrik, Korporat
 
 > [!TIP]
-> Pricing Rp 99rb/bulan dipilih karena berada di bawah *psychological barrier* Rp 100rb, yang umum menjadi batas psikologis konsumen Indonesia untuk subscription digital.
+> Pricing Rp 99rb/bulan dipilih karena berada di bawah _psychological barrier_ Rp 100rb, yang umum menjadi batas psikologis konsumen Indonesia untuk subscription digital.
 
 ---
 
 ## Perbandingan dengan Kompetitor
 
-| Platform | Model | Harga | Keunggulan Kita |
-|---|---|---|---|
-| SolarEdge Monitoring | Hardware-locked | $$$$ (bundled) | Kita hardware-agnostic, ESP32 cukup |
-| Huawei FusionSolar | Proprietary | Gratis tapi locked | Kita open API, multi-brand |
-| PVOutput.org | Community | Gratis | Kita punya AI forecast + notification |
-| Enphase Enlighten | SaaS | $$/bulan | Kita fokus pasar Indonesia, harga lokal |
+| Platform             | Model           | Harga              | Keunggulan Kita                         |
+| -------------------- | --------------- | ------------------ | --------------------------------------- |
+| SolarEdge Monitoring | Hardware-locked | $$$$ (bundled)     | Kita hardware-agnostic, ESP32 cukup     |
+| Huawei FusionSolar   | Proprietary     | Gratis tapi locked | Kita open API, multi-brand              |
+| PVOutput.org         | Community       | Gratis             | Kita punya AI forecast + notification   |
+| Enphase Enlighten    | SaaS            | $$/bulan           | Kita fokus pasar Indonesia, harga lokal |
 
 ---
 

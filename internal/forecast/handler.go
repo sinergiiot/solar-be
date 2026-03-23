@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -118,14 +119,15 @@ func (h *Handler) GetForecastHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	forecasts, err := h.service.GetForecastHistory(userID, days, filter)
+	planTier := tier.GetTierFromContext(r.Context())
+	forecasts, err := h.service.GetForecastHistory(userID, planTier, days, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	var result []map[string]any
-	for _, f := range forecasts {
+	for _, f := range forecasts.Items {
 		result = append(result, map[string]any{
 			"date":                f.Date.Format(time.DateOnly),
 			"solar_profile_id":    f.SolarProfileID,
@@ -140,8 +142,10 @@ func (h *Handler) GetForecastHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"forecasts": result,
-		"count":     len(result),
+		"forecasts":   result,
+		"total_count": forecasts.TotalCount,
+		"page":        forecasts.Page,
+		"page_size":   forecasts.PageSize,
 	})
 }
 
@@ -160,14 +164,15 @@ func (h *Handler) GetActualHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actuals, err := h.service.GetActualHistory(userID, days, filter)
+	planTier := tier.GetTierFromContext(r.Context())
+	actuals, err := h.service.GetActualHistory(userID, planTier, days, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	var result []map[string]any
-	for _, a := range actuals {
+	for _, a := range actuals.Items {
 		result = append(result, map[string]any{
 			"date":             a.Date.Format(time.DateOnly),
 			"solar_profile_id": a.SolarProfileID,
@@ -177,8 +182,10 @@ func (h *Handler) GetActualHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"actuals": result,
-		"count":   len(result),
+		"actuals":     result,
+		"total_count": actuals.TotalCount,
+		"page":        actuals.Page,
+		"page_size":   actuals.PageSize,
 	})
 }
 
@@ -190,7 +197,8 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	summary, err := h.service.GetDashboardSummary(userID)
+	planTier := tier.GetTierFromContext(r.Context())
+	summary, err := h.service.GetDashboardSummary(userID, planTier)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -288,10 +296,15 @@ func parseHistoryFilter(r *http.Request) (HistoryFilter, error) {
 		return HistoryFilter{}, errInvalid("start_date must be before or equal to end_date")
 	}
 
+	page := parseOptionalIntQuery(r, "page", 1)
+	pageSize := parseOptionalIntQuery(r, "page_size", 10)
+
 	return HistoryFilter{
 		SolarProfileID: profileID,
 		StartDate:      startDate,
 		EndDate:        endDate,
+		Page:           page,
+		PageSize:       pageSize,
 	}, nil
 }
 

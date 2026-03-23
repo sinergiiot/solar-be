@@ -1,0 +1,81 @@
+package billing
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
+	"github.com/go-chi/chi/v5"
+)
+
+type Handler struct {
+	service Service
+}
+
+func NewHandler(service Service) *Handler {
+	return &Handler{service: service}
+}
+
+func (h *Handler) RegisterRoutes(r chi.Router) {
+	r.Post("/billing/checkout", h.Checkout)
+	r.Get("/billing/subscription", h.GetSubscription)
+	r.Post("/billing/webhook", h.Webhook) // Public route potentially
+}
+
+func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req CheckoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	res, err := h.service.InitiateCheckout(r.Context(), userID, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	sub, err := h.service.GetSubscriptionStatus(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if sub == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"plan_tier": "free", "status": "active"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, sub)
+}
+
+func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
+	// Handle payment notification
+	w.WriteHeader(http.StatusOK)
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}

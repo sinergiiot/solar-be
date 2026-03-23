@@ -26,7 +26,7 @@ type Service interface {
 	VerifyEmail(email, code string) (*user.User, string, string, error)
 	ResendVerification(email string) error
 	Login(email, password string) (*user.User, string, string, error)
-	ParseToken(token string) (uuid.UUID, error)
+	ParseToken(token string) (uuid.UUID, jwt.MapClaims, error)
 	RefreshTokens(refreshToken string) (accessToken, newRefreshToken string, err error)
 	RevokeRefreshToken(refreshToken string) error
 	ForgotPassword(email string) error
@@ -129,7 +129,7 @@ func (s *service) VerifyEmail(email, code string) (*user.User, string, string, e
 	}
 
 	if u.EmailVerified {
-		accessToken, tokenErr := s.buildAccessToken(u.ID)
+		accessToken, tokenErr := s.buildAccessToken(u.ID, u.Role)
 		if tokenErr != nil {
 			return nil, "", "", tokenErr
 		}
@@ -175,7 +175,7 @@ func (s *service) VerifyEmail(email, code string) (*user.User, string, string, e
 	now := time.Now().UTC()
 	u.EmailVerifiedAt = &now
 
-	accessToken, err := s.buildAccessToken(u.ID)
+	accessToken, err := s.buildAccessToken(u.ID, u.Role)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -295,7 +295,7 @@ func (s *service) Login(email, password string) (*user.User, string, string, err
 		return nil, "", "", fmt.Errorf("invalid email or password")
 	}
 
-	accessToken, err := s.buildAccessToken(u.ID)
+	accessToken, err := s.buildAccessToken(u.ID, u.Role)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -308,8 +308,8 @@ func (s *service) Login(email, password string) (*user.User, string, string, err
 	return u, accessToken, refreshToken, nil
 }
 
-// ParseToken validates JWT and returns user id from subject.
-func (s *service) ParseToken(token string) (uuid.UUID, error) {
+// ParseToken validates JWT and returns user id + claims.
+func (s *service) ParseToken(token string) (uuid.UUID, jwt.MapClaims, error) {
 	parsed, err := jwt.Parse(token, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
@@ -317,25 +317,25 @@ func (s *service) ParseToken(token string) (uuid.UUID, error) {
 		return s.jwtSecret, nil
 	})
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("parse token: %w", err)
+		return uuid.Nil, nil, fmt.Errorf("parse token: %w", err)
 	}
 
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok || !parsed.Valid {
-		return uuid.Nil, fmt.Errorf("invalid token")
+		return uuid.Nil, nil, fmt.Errorf("invalid token")
 	}
 
 	subRaw, ok := claims["sub"].(string)
 	if !ok {
-		return uuid.Nil, fmt.Errorf("token subject is missing")
+		return uuid.Nil, nil, fmt.Errorf("token subject is missing")
 	}
 
 	userID, err := uuid.Parse(subRaw)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid token subject: %w", err)
+		return uuid.Nil, nil, fmt.Errorf("invalid token subject: %w", err)
 	}
 
-	return userID, nil
+	return userID, claims, nil
 }
 
 // RefreshTokens validates a refresh token, rotates it, and issues a new access token.
@@ -361,7 +361,12 @@ func (s *service) RefreshTokens(refreshToken string) (string, string, error) {
 		return "", "", fmt.Errorf("revoke old refresh token: %w", err)
 	}
 
-	newAccessToken, err := s.buildAccessToken(row.userID)
+	u, err := s.userService.GetUserByID(row.userID)
+	if err != nil {
+		return "", "", fmt.Errorf("lookup user for refresh: %w", err)
+	}
+
+	newAccessToken, err := s.buildAccessToken(row.userID, u.Role)
 	if err != nil {
 		return "", "", err
 	}
@@ -470,14 +475,15 @@ func (s *service) issueRefreshToken(userID uuid.UUID) (string, error) {
 }
 
 // buildAccessToken issues a signed short-lived JWT for one user.
-func (s *service) buildAccessToken(userID uuid.UUID) (string, error) {
+func (s *service) buildAccessToken(userID uuid.UUID, role string) (string, error) {
 	now := time.Now().UTC()
 	exp := now.Add(time.Duration(s.tokenExpiryHours) * time.Hour)
 
 	claims := jwt.MapClaims{
-		"sub": userID.String(),
-		"iat": now.Unix(),
-		"exp": exp.Unix(),
+		"sub":  userID.String(),
+		"role": role,
+		"iat":  now.Unix(),
+		"exp":  exp.Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

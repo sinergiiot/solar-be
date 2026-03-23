@@ -24,6 +24,8 @@ type Repository interface {
 	UpdateUserEfficiency(userID uuid.UUID, efficiency float64) error
 	GetForecastHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) ([]*Forecast, error)
 	GetActualHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) ([]*ActualDaily, error)
+	CountForecastHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error)
+	CountActualHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error)
 	HasAnyActualData(userID uuid.UUID) (bool, error)
 }
 // HasAnyActualData returns true if the user has any actual daily data recorded.
@@ -203,8 +205,17 @@ func (r *repository) GetForecastHistoryByUser(userID uuid.UUID, days int, filter
 		args = append(args, normalizeDate(*filter.EndDate))
 		b.WriteString(fmt.Sprintf(" AND date <= $%d", len(args)))
 	}
+	b.WriteString(" ORDER BY date DESC")
 
-	b.WriteString(" ORDER BY date DESC LIMIT 100")
+	if filter.PageSize > 0 {
+		b.WriteString(fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2))
+		page := filter.Page
+		if page < 1 {
+			page = 1
+		}
+		offset := (page - 1) * filter.PageSize
+		args = append(args, filter.PageSize, offset)
+	}
 
 	rows, err := r.db.Query(b.String(), args...)
 	if err != nil {
@@ -249,8 +260,17 @@ func (r *repository) GetActualHistoryByUser(userID uuid.UUID, days int, filter H
 		args = append(args, normalizeDate(*filter.EndDate))
 		b.WriteString(fmt.Sprintf(" AND date <= $%d", len(args)))
 	}
+	b.WriteString(" ORDER BY date DESC")
 
-	b.WriteString(" ORDER BY date DESC LIMIT 100")
+	if filter.PageSize > 0 {
+		b.WriteString(fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2))
+		page := filter.Page
+		if page < 1 {
+			page = 1
+		}
+		offset := (page - 1) * filter.PageSize
+		args = append(args, filter.PageSize, offset)
+	}
 
 	rows, err := r.db.Query(b.String(), args...)
 	if err != nil {
@@ -287,4 +307,62 @@ func (r *repository) CountValidActualDays(ctx context.Context, userID uuid.UUID,
 // normalizeDate strips the time component before persisting or querying DATE columns.
 func normalizeDate(input time.Time) time.Time {
 	return time.Date(input.Year(), input.Month(), input.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func (r *repository) CountForecastHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error) {
+	args := []any{userID, days}
+	b := strings.Builder{}
+	b.WriteString(`
+		SELECT COUNT(*)
+		FROM forecasts
+		WHERE user_id = $1 AND date >= NOW() - INTERVAL '1 day' * $2
+	`)
+
+	if filter.SolarProfileID != nil {
+		args = append(args, *filter.SolarProfileID)
+		b.WriteString(fmt.Sprintf(" AND solar_profile_id = $%d", len(args)))
+	}
+	if filter.StartDate != nil {
+		args = append(args, normalizeDate(*filter.StartDate))
+		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
+	}
+	if filter.EndDate != nil {
+		args = append(args, normalizeDate(*filter.EndDate))
+		b.WriteString(fmt.Sprintf(" AND date <= $%d", len(args)))
+	}
+
+	var count int
+	if err := r.db.QueryRow(b.String(), args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count forecast history: %w", err)
+	}
+	return count, nil
+}
+
+func (r *repository) CountActualHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error) {
+	args := []any{userID, days}
+	b := strings.Builder{}
+	b.WriteString(`
+		SELECT COUNT(*)
+		FROM actual_daily
+		WHERE user_id = $1 AND date >= NOW() - INTERVAL '1 day' * $2
+	`)
+
+	if filter.SolarProfileID != nil {
+		args = append(args, *filter.SolarProfileID)
+		b.WriteString(fmt.Sprintf(" AND solar_profile_id = $%d", len(args)))
+	}
+	if filter.StartDate != nil {
+		args = append(args, normalizeDate(*filter.StartDate))
+		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
+	}
+	if filter.EndDate != nil {
+		args = append(args, normalizeDate(*filter.EndDate))
+		b.WriteString(fmt.Sprintf(" AND date <= $%d", len(args)))
+	}
+
+	var count int
+	if err := r.db.QueryRow(b.String(), args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count actual history: %w", err)
+	}
+	return count, nil
 }

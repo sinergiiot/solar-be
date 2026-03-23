@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -82,11 +83,17 @@ func (h *Handler) CreateDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := h.service.CreateDevice(userID, req)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	req.PlanTier = tier.GetTierFromContext(r.Context())
+ 
+ 	res, err := h.service.CreateDevice(userID, req)
+ 	if err != nil {
+		if limitErr, ok := err.(*tier.LimitError); ok {
+			writeJSON(w, http.StatusForbidden, limitErr)
+			return
+		}
+ 		writeError(w, http.StatusBadRequest, err.Error())
+ 		return
+ 	}
 
 	writeJSON(w, http.StatusCreated, res)
 }

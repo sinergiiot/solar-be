@@ -52,6 +52,7 @@ func (s *service) CreateUser(req CreateUserRequest) (*User, error) {
 		ID:                 uuid.New(),
 		Name:               strings.TrimSpace(req.Name),
 		Email:              strings.ToLower(strings.TrimSpace(req.Email)),
+		Role:               "user",
 		EmailVerified:      false,
 		EmailVerifiedAt:    nil,
 		PasswordHash:       string(passwordHash),

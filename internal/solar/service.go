@@ -1,23 +1,27 @@
 package solar
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/google/uuid"
 )
 
 // Service defines business logic operations for solar profiles
 type Service interface {
-	CreateSolarProfile(req CreateSolarProfileRequest) (*SolarProfile, error)
+	CreateSolarProfile(ctx context.Context, req CreateSolarProfileRequest) (*SolarProfile, error)
 	UpdateSolarProfile(profileID uuid.UUID, req UpdateSolarProfileRequest) (*SolarProfile, error)
 	DeleteSolarProfile(profileID uuid.UUID, userID uuid.UUID) error
 	GetSolarProfilesByUserID(userID uuid.UUID) ([]*SolarProfile, error)
 	GetSolarProfileByUserID(userID uuid.UUID) (*SolarProfile, error)
 	GetSolarProfileByIDAndUserID(profileID uuid.UUID, userID uuid.UUID) (*SolarProfile, error)
 	GetAllSolarProfiles() ([]*SolarProfile, error)
+	CountProfilesByUserID(ctx context.Context, userID uuid.UUID) (int, error)
+	UpdateSoilingAlert(profileID uuid.UUID, active bool, checkedAt time.Time) error
 }
 
 type service struct {
@@ -30,7 +34,7 @@ func NewService(repo Repository) Service {
 }
 
 // CreateSolarProfile validates and saves a solar profile to the database
-func (s *service) CreateSolarProfile(req CreateSolarProfileRequest) (*SolarProfile, error) {
+func (s *service) CreateSolarProfile(ctx context.Context, req CreateSolarProfileRequest) (*SolarProfile, error) {
 	if req.CapacityKwp <= 0 {
 		return nil, fmt.Errorf("capacity_kwp must be greater than 0")
 	}
@@ -41,6 +45,18 @@ func (s *service) CreateSolarProfile(req CreateSolarProfileRequest) (*SolarProfi
 	siteName := strings.TrimSpace(req.SiteName)
 	if siteName == "" {
 		siteName = "Main Site"
+	}
+
+	// Check tier limit
+	limit := tier.ProfileLimit[req.PlanTier]
+	if limit != -1 {
+		count, err := s.repo.CountProfilesByUserID(ctx, req.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if count >= limit {
+			return nil, tier.NewLimitError("site", count, limit, req.PlanTier)
+		}
 	}
 
 	p := &SolarProfile{
@@ -123,4 +139,11 @@ func (s *service) GetSolarProfileByIDAndUserID(profileID uuid.UUID, userID uuid.
 // GetAllSolarProfiles returns all solar profiles
 func (s *service) GetAllSolarProfiles() ([]*SolarProfile, error) {
 	return s.repo.GetAllSolarProfiles()
+}
+func (s *service) CountProfilesByUserID(ctx context.Context, userID uuid.UUID) (int, error) {
+	return s.repo.CountProfilesByUserID(ctx, userID)
+}
+
+func (s *service) UpdateSoilingAlert(profileID uuid.UUID, active bool, checkedAt time.Time) error {
+	return s.repo.UpdateSoilingAlert(profileID, active, checkedAt)
 }

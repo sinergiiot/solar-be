@@ -11,6 +11,7 @@ type User struct {
 	ID                 uuid.UUID `json:"id"`
 	Name               string    `json:"name"`
 	Email              string    `json:"email"`
+	Role               string    `json:"role"`
 	EmailVerified      bool      `json:"email_verified"`
 	EmailVerifiedAt    *time.Time `json:"email_verified_at,omitempty"`
 	PasswordHash       string    `json:"-"`

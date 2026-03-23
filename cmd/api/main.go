@@ -11,13 +11,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/admin"
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
+	"github.com/akbarsenawijaya/solar-forecast/internal/billing"
+	"github.com/akbarsenawijaya/solar-forecast/internal/report"
 	"github.com/akbarsenawijaya/solar-forecast/internal/config"
 	"github.com/akbarsenawijaya/solar-forecast/internal/device"
+	"github.com/akbarsenawijaya/solar-forecast/internal/rec"
 	"github.com/akbarsenawijaya/solar-forecast/internal/forecast"
 	"github.com/akbarsenawijaya/solar-forecast/internal/notification"
 	"github.com/akbarsenawijaya/solar-forecast/internal/scheduler"
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weatherbaseline"
@@ -49,27 +54,16 @@ func main() {
 	deviceRepo := device.NewRepository(db)
 	notifRepo := notification.NewRepository(db)
 	weatherBaselineRepo := weatherbaseline.NewRepository(db)
+	billingRepo := billing.NewRepository(db)
+	recRepo := rec.NewRepository(db)
 
 	// Wire services
 	userSvc := user.NewService(userRepo)
 	solarSvc := solar.NewService(solarRepo)
 	weatherSvc := weather.NewService(weatherRepo, cfg.Weather.BaseURL)
 	weatherBaselineSvc := weatherbaseline.NewService(weatherBaselineRepo, cfg.Weather.BaseURL)
-	forecastSvc := forecast.NewService(forecastRepo, solarSvc, weatherSvc, weatherBaselineSvc)
 	deviceSvc := device.NewService(deviceRepo)
-	authSvc := auth.NewService(
-		db,
-		userSvc,
-		cfg.Auth.JWTSecret,
-		cfg.Auth.TokenExpiryHrs,
-		cfg.Auth.RefreshTokenExpiryDays,
-		cfg.Auth.VerifyEmailOnRegister,
-		cfg.SMTP.Host,
-		cfg.SMTP.Port,
-		cfg.SMTP.Username,
-		cfg.SMTP.Password,
-		cfg.SMTP.From,
-	)
+	
 	notifSvc := notification.NewService(
 		notifRepo,
 		cfg.SMTP.Host,
@@ -84,8 +78,27 @@ func main() {
 		cfg.WhatsApp.LanguageCode,
 	)
 
+	recSvc := rec.NewService(recRepo, userSvc, notifSvc)
+	forecastSvc := forecast.NewService(forecastRepo, solarSvc, deviceSvc, weatherSvc, recSvc, weatherBaselineSvc)
+	authSvc := auth.NewService(
+		db,
+		userSvc,
+		cfg.Auth.JWTSecret,
+		cfg.Auth.TokenExpiryHrs,
+		cfg.Auth.RefreshTokenExpiryDays,
+		cfg.Auth.VerifyEmailOnRegister,
+		cfg.SMTP.Host,
+		cfg.SMTP.Port,
+		cfg.SMTP.Username,
+		cfg.SMTP.Password,
+		cfg.SMTP.From,
+	)
+	billingSvc := billing.NewService(billingRepo)
+	reportSvc := report.NewService(forecastSvc, solarSvc)
+	adminSvc := admin.NewService(db, userSvc)
+
 	// Start the daily forecast scheduler
-	sched := scheduler.New(userSvc, solarSvc, forecastSvc, notifSvc)
+	sched := scheduler.New(userSvc, solarSvc, forecastSvc, notifSvc, billingSvc)
 	sched.Start()
 	defer sched.Stop()
 
@@ -98,16 +111,24 @@ func main() {
 	authHandler := auth.NewHandler(authSvc, userSvc)
 	deviceHandler := device.NewHandler(deviceSvc)
 	notifHandler := notification.NewHandler(notifSvc)
+	billingHandler := billing.NewHandler(billingSvc)
+	reportHandler := report.NewHandler(reportSvc, userSvc)
+	adminHandler := admin.NewHandler(adminSvc)
 	authHandler.RegisterPublicRoutes(r)
 	deviceHandler.RegisterPublicRoutes(r)
 
 	r.Group(func(protected chi.Router) {
 		protected.Use(auth.Middleware(authSvc))
+		protected.Use(tier.TierMiddleware(notifRepo, auth.UserIDFromContext))
+
 		authHandler.RegisterProtectedRoutes(protected)
 		solar.NewHandler(solarSvc).RegisterRoutes(protected)
 		forecast.NewHandler(forecastSvc, cfg.Debug.ForecastToken).RegisterRoutes(protected)
 		deviceHandler.RegisterProtectedRoutes(protected)
 		notifHandler.RegisterRoutes(protected)
+		billingHandler.RegisterRoutes(protected)
+		reportHandler.RegisterRoutes(protected)
+		adminHandler.RegisterRoutes(protected)
 	})
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

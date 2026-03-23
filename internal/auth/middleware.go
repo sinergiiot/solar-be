@@ -10,7 +10,10 @@ import (
 
 type contextKey string
 
-const userIDContextKey contextKey = "auth_user_id"
+const (
+	UserIDContextKey contextKey = "auth_user_id"
+	RoleContextKey   contextKey = "auth_user_role"
+)
 
 // Middleware validates bearer tokens and injects user id into request context.
 func Middleware(authService Service) func(http.Handler) http.Handler {
@@ -18,23 +21,29 @@ func Middleware(authService Service) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing authorization header"})
+				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing authorization header"})
 				return
 			}
 
 			parts := strings.SplitN(authHeader, " ", 2)
 			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid authorization header"})
+				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid authorization header"})
 				return
 			}
 
-			userID, err := authService.ParseToken(parts[1])
+			userID, claims, err := authService.ParseToken(parts[1])
 			if err != nil {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+				WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid token"})
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), userIDContextKey, userID)
+			ctx := context.WithValue(r.Context(), UserIDContextKey, userID)
+			// Note: We only have userID from token. 
+			// To avoid DB call in middleware for every request, we SHOULD bake role into JWT.
+			// Let's update buildAccessToken to include role.
+			role, _ := claims["role"].(string)
+			ctx = context.WithValue(ctx, RoleContextKey, role)
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -42,6 +51,12 @@ func Middleware(authService Service) func(http.Handler) http.Handler {
 
 // UserIDFromContext extracts authenticated user id from request context.
 func UserIDFromContext(ctx context.Context) (uuid.UUID, bool) {
-	userID, ok := ctx.Value(userIDContextKey).(uuid.UUID)
+	userID, ok := ctx.Value(UserIDContextKey).(uuid.UUID)
 	return userID, ok
+}
+
+// UserRoleFromContext extracts authenticated user role from request context.
+func UserRoleFromContext(ctx context.Context) string {
+	role, _ := ctx.Value(RoleContextKey).(string)
+	return role
 }

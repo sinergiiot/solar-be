@@ -1,6 +1,7 @@
 package device
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -23,6 +24,7 @@ type Repository interface {
 	SaveTelemetryRaw(t *TelemetryRaw) (bool, error)
 	RebuildActualDailyFromTelemetry(userID uuid.UUID, solarProfileID *uuid.UUID, day time.Time) error
 	UpdateDeviceHeartbeat(deviceID uuid.UUID, seenAt time.Time) error
+	CountDevicesByUser(ctx context.Context, userID uuid.UUID) (int, error)
 }
 
 type repository struct {
@@ -301,4 +303,15 @@ func (r *repository) UpdateDeviceHeartbeat(deviceID uuid.UUID, seenAt time.Time)
 // normalizeDate strips time component for date columns.
 func normalizeDate(input time.Time) time.Time {
 	return time.Date(input.Year(), input.Month(), input.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// CountDevicesByUser returns the total number of devices registered by one user.
+func (r *repository) CountDevicesByUser(ctx context.Context, userID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM devices WHERE user_id = $1`
+	var count int
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count devices: %w", err)
+	}
+	return count, nil
 }

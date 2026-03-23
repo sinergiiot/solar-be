@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/billing"
 	"github.com/akbarsenawijaya/solar-forecast/internal/forecast"
 	"github.com/akbarsenawijaya/solar-forecast/internal/notification"
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
@@ -23,6 +25,7 @@ type Scheduler struct {
 	solarService    solar.Service
 	forecastService forecast.Service
 	notifService    notification.Service
+	billingService  billing.Service
 }
 
 // New creates a new scheduler with all required service dependencies.
@@ -31,6 +34,7 @@ func New(
 	solarSvc solar.Service,
 	forecastSvc forecast.Service,
 	notifSvc notification.Service,
+	billingSvc billing.Service,
 ) *Scheduler {
 	return &Scheduler{
 		cron:            cron.New(cron.WithSeconds()),
@@ -38,6 +42,7 @@ func New(
 		solarService:    solarSvc,
 		forecastService: forecastSvc,
 		notifService:    notifSvc,
+		billingService:  billingSvc,
 	}
 }
 
@@ -45,11 +50,16 @@ func New(
 func (s *Scheduler) Start() {
 	_, err := s.cron.AddFunc("0 */5 * * * *", s.runScheduledForecastChecks)
 	if err != nil {
-		log.Fatalf("failed to register daily forecast cron: %v", err)
+		log.Printf("failed to register daily forecast cron: %v", err)
+	}
+
+	_, err = s.cron.AddFunc("0 0 * * * *", s.runSubscriptionCleanup)
+	if err != nil {
+		log.Printf("failed to register subscription cleanup cron: %v", err)
 	}
 
 	s.cron.Start()
-	log.Println("Scheduler started: checking due user forecast deliveries every 5 minutes")
+	log.Println("Scheduler started: background jobs active")
 }
 
 // Stop gracefully stops the scheduler.
@@ -116,7 +126,7 @@ func (s *Scheduler) runScheduledForecastChecks() {
 			log.Printf("scheduled calibration: failed for user %s (%s): %v", currentUser.Name, currentUser.ID, err)
 		}
 
-		if err := s.processUserForecast(currentUser.ID, currentUser.Name, currentUser.Email, localToday); err != nil {
+		if err := s.processUserForecast(currentUser.ID, currentUser.Name, currentUser.Email, localToday, pref); err != nil {
 			if isMissingSolarProfileError(err) {
 				log.Printf("scheduled forecast: skipped for user %s (%s): solar profile not available", currentUser.Name, currentUser.ID)
 				continue
@@ -162,7 +172,7 @@ func (s *Scheduler) calibrateUserEfficiency(userID uuid.UUID, date time.Time) er
 }
 
 // processUserForecast generates the forecast and sends the notification for one user.
-func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, date time.Time) error {
+func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, date time.Time, pref *notification.NotificationPreference) error {
 	result, err := s.forecastService.GenerateForecastForUser(userID, date)
 	if err != nil {
 		return fmt.Errorf("generate forecast: %w", err)
@@ -181,9 +191,13 @@ func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, da
 	var deviationPct *float64
 	referenceLabel := "actual referensi"
 	if result.SolarProfileID != nil {
-		actualHistory, historyErr := s.forecastService.GetActualHistory(userID, 90, forecast.HistoryFilter{SolarProfileID: result.SolarProfileID})
+		planTier := notification.PlanFree
+		if pref != nil {
+			planTier = pref.PlanTier
+		}
+		actualHistory, historyErr := s.forecastService.GetActualHistory(userID, planTier, 90, forecast.HistoryFilter{SolarProfileID: result.SolarProfileID})
 		if historyErr == nil {
-			referenceActual := findReferenceActual(actualHistory, date)
+			referenceActual := findReferenceActual(actualHistory.Items, date)
 			if referenceActual != nil && referenceActual.ActualKwh > 0 {
 				value := ((result.PredictedKwh - referenceActual.ActualKwh) / referenceActual.ActualKwh) * 100
 				deviationPct = &value
@@ -369,4 +383,13 @@ func getConditionText(wf float64) (string, string) {
 		return "mendung", "dampak ke produksi sedang, output cenderung turun dibanding hari cerah"
 	}
 	return "mendung tebal", "dampak ke produksi tinggi, output berpotensi turun signifikan"
+}
+
+// runSubscriptionCleanup checks for past-due subscriptions and downgrades users.
+func (s *Scheduler) runSubscriptionCleanup() {
+	log.Println("Running background subscription cleanup...")
+	ctx := context.Background()
+	if err := s.billingService.CleanupExpiredSubscriptions(ctx); err != nil {
+		log.Printf("cleanup: failed to process expired subscriptions: %v", err)
+	}
 }

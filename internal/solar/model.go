@@ -8,15 +8,17 @@ import (
 
 // SolarProfile represents a user's solar panel installation
 type SolarProfile struct {
-	ID          uuid.UUID `json:"id"`
-	UserID      uuid.UUID `json:"user_id"`
-	SiteName    string    `json:"site_name"`
-	CapacityKwp float64   `json:"capacity_kwp"`
-	Lat         float64   `json:"lat"`
-	Lng         float64   `json:"lng"`
-	Tilt        *float64  `json:"tilt,omitempty"`
-	Azimuth     *float64  `json:"azimuth,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID                       uuid.UUID  `json:"id"`
+	UserID                   uuid.UUID  `json:"user_id"`
+	SiteName                 string     `json:"site_name"`
+	CapacityKwp              float64    `json:"capacity_kwp"`
+	Lat                      float64    `json:"lat"`
+	Lng                      float64    `json:"lng"`
+	Tilt                     *float64   `json:"tilt,omitempty"`
+	Azimuth                  *float64   `json:"azimuth,omitempty"`
+	SoilingAlertActive       bool       `json:"soiling_alert_active"`
+	SoilingAlertLastChecked *time.Time `json:"soiling_alert_last_checked,omitempty"`
+	CreatedAt                time.Time  `json:"created_at"`
 }
 
 // CreateSolarProfileRequest holds data needed to create a solar panel profile
@@ -28,6 +30,7 @@ type CreateSolarProfileRequest struct {
 	Lng         float64   `json:"lng"`
 	Tilt        *float64  `json:"tilt,omitempty"`
 	Azimuth     *float64  `json:"azimuth,omitempty"`
+	PlanTier    string    `json:"-"`
 }
 
 // UpdateSolarProfileRequest holds data needed to update one solar panel profile.

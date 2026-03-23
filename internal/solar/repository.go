@@ -1,8 +1,10 @@
 package solar
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -16,6 +18,8 @@ type Repository interface {
 	GetSolarProfileByUserID(userID uuid.UUID) (*SolarProfile, error)
 	GetSolarProfileByIDAndUserID(profileID uuid.UUID, userID uuid.UUID) (*SolarProfile, error)
 	GetAllSolarProfiles() ([]*SolarProfile, error)
+	CountProfilesByUserID(ctx context.Context, userID uuid.UUID) (int, error)
+	UpdateSoilingAlert(profileID uuid.UUID, active bool, checkedAt time.Time) error
 }
 
 type repository struct {
@@ -32,7 +36,7 @@ func (r *repository) CreateSolarProfile(p *SolarProfile) (*SolarProfile, error) 
 	query := `
 		INSERT INTO solar_profiles (id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at
+		RETURNING id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, soiling_alert_active, soiling_alert_last_checked, created_at
 	`
 
 	stored := &SolarProfile{}
@@ -45,6 +49,8 @@ func (r *repository) CreateSolarProfile(p *SolarProfile) (*SolarProfile, error) 
 		&stored.Lng,
 		&stored.Tilt,
 		&stored.Azimuth,
+		&stored.SoilingAlertActive,
+		&stored.SoilingAlertLastChecked,
 		&stored.CreatedAt,
 	)
 	if err != nil {
@@ -64,7 +70,7 @@ func (r *repository) UpdateSolarProfileByIDAndUserID(profileID uuid.UUID, userID
 		    tilt = $7,
 		    azimuth = $8
 		WHERE id = $1 AND user_id = $2
-		RETURNING id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at
+		RETURNING id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, soiling_alert_active, soiling_alert_last_checked, created_at
 	`
 
 	stored := &SolarProfile{}
@@ -77,6 +83,8 @@ func (r *repository) UpdateSolarProfileByIDAndUserID(profileID uuid.UUID, userID
 		&stored.Lng,
 		&stored.Tilt,
 		&stored.Azimuth,
+		&stored.SoilingAlertActive,
+		&stored.SoilingAlertLastChecked,
 		&stored.CreatedAt,
 	)
 	if err != nil {
@@ -109,7 +117,7 @@ func (r *repository) DeleteSolarProfileByIDAndUserID(profileID uuid.UUID, userID
 // GetSolarProfilesByUserID returns all solar profiles belonging to one user.
 func (r *repository) GetSolarProfilesByUserID(userID uuid.UUID) ([]*SolarProfile, error) {
 	query := `
-		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at
+		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, soiling_alert_active, soiling_alert_last_checked, created_at
 		FROM solar_profiles
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -124,7 +132,7 @@ func (r *repository) GetSolarProfilesByUserID(userID uuid.UUID) ([]*SolarProfile
 	profiles := []*SolarProfile{}
 	for rows.Next() {
 		p := &SolarProfile{}
-		if err := rows.Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.SoilingAlertActive, &p.SoilingAlertLastChecked, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan solar profile by user id: %w", err)
 		}
 		profiles = append(profiles, p)
@@ -140,7 +148,7 @@ func (r *repository) GetSolarProfilesByUserID(userID uuid.UUID) ([]*SolarProfile
 // GetSolarProfileByUserID fetches the solar profile belonging to a user
 func (r *repository) GetSolarProfileByUserID(userID uuid.UUID) (*SolarProfile, error) {
 	query := `
-		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at
+		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, soiling_alert_active, soiling_alert_last_checked, created_at
 		FROM solar_profiles WHERE user_id = $1
 		ORDER BY created_at DESC
 		LIMIT 1
@@ -148,7 +156,7 @@ func (r *repository) GetSolarProfileByUserID(userID uuid.UUID) (*SolarProfile, e
 	row := r.db.QueryRow(query, userID)
 
 	p := &SolarProfile{}
-	if err := row.Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.CreatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.SoilingAlertActive, &p.SoilingAlertLastChecked, &p.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get solar profile by user id: %w", err)
 	}
 	return p, nil
@@ -157,13 +165,13 @@ func (r *repository) GetSolarProfileByUserID(userID uuid.UUID) (*SolarProfile, e
 // GetSolarProfileByIDAndUserID fetches one solar profile by id scoped to one user.
 func (r *repository) GetSolarProfileByIDAndUserID(profileID uuid.UUID, userID uuid.UUID) (*SolarProfile, error) {
 	query := `
-		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at
+		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, soiling_alert_active, soiling_alert_last_checked, created_at
 		FROM solar_profiles
 		WHERE id = $1 AND user_id = $2
 	`
 
 	p := &SolarProfile{}
-	if err := r.db.QueryRow(query, profileID, userID).Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.CreatedAt); err != nil {
+	if err := r.db.QueryRow(query, profileID, userID).Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.SoilingAlertActive, &p.SoilingAlertLastChecked, &p.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get solar profile by id and user id: %w", err)
 	}
 
@@ -173,7 +181,7 @@ func (r *repository) GetSolarProfileByIDAndUserID(profileID uuid.UUID, userID uu
 // GetAllSolarProfiles returns every solar profile in the database
 func (r *repository) GetAllSolarProfiles() ([]*SolarProfile, error) {
 	query := `
-		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, created_at
+		SELECT id, user_id, site_name, capacity_kwp, lat, lng, tilt, azimuth, soiling_alert_active, soiling_alert_last_checked, created_at
 		FROM solar_profiles ORDER BY created_at ASC
 	`
 	rows, err := r.db.Query(query)
@@ -185,10 +193,28 @@ func (r *repository) GetAllSolarProfiles() ([]*SolarProfile, error) {
 	var profiles []*SolarProfile
 	for rows.Next() {
 		p := &SolarProfile{}
-		if err := rows.Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.SiteName, &p.CapacityKwp, &p.Lat, &p.Lng, &p.Tilt, &p.Azimuth, &p.SoilingAlertActive, &p.SoilingAlertLastChecked, &p.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan solar profile: %w", err)
 		}
 		profiles = append(profiles, p)
 	}
 	return profiles, nil
+}
+
+// CountProfilesByUserID returns the total number of profiles owned by one user.
+func (r *repository) CountProfilesByUserID(ctx context.Context, userID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM solar_profiles WHERE user_id = $1`
+	var count int
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count solar profiles: %w", err)
+	}
+	return count, nil
+}
+
+// UpdateSoilingAlert updates the soiling status for a solar profile
+func (r *repository) UpdateSoilingAlert(profileID uuid.UUID, active bool, checkedAt time.Time) error {
+	query := `UPDATE solar_profiles SET soiling_alert_active = $2, soiling_alert_last_checked = $3 WHERE id = $1`
+	_, err := r.db.Exec(query, profileID, active, checkedAt)
+	return err
 }

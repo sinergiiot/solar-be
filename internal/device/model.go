@@ -50,6 +50,7 @@ type CreateDeviceRequest struct {
 	Name           string  `json:"name"`
 	ExternalID     string  `json:"external_id"`
 	SolarProfileID *string `json:"solar_profile_id,omitempty"`
+	PlanTier       string  `json:"-"`
 }
 
 // UpdateDeviceRequest is used by authenticated users to update one registered device.

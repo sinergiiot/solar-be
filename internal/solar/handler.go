@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -44,9 +45,14 @@ func (h *Handler) CreateSolarProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.UserID = userID
+	req.PlanTier = tier.GetTierFromContext(r.Context())
 
-	profile, err := h.service.CreateSolarProfile(req)
+	profile, err := h.service.CreateSolarProfile(r.Context(), req)
 	if err != nil {
+		if limitErr, ok := err.(*tier.LimitError); ok {
+			writeJSON(w, http.StatusForbidden, limitErr)
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

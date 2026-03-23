@@ -1,4 +1,5 @@
 # AI Agent Prompt Catalog v2 — Solar Forecast Green Compliance + Freemium
+
 **Untuk:** GitHub Copilot, Claude, Gemini, ChatGPT, Antigravity  
 **Stack:** Go + Chi + PostgreSQL + React + Vite + Tailwind  
 **Konvensi:** modular monolith, chi router, pgx/v5, JWT auth, UUID sebagai primary key
@@ -352,6 +353,7 @@ Add to existing scheduler (daily job at 00:00 WIB):
 ```
 
 ---
+
 ---
 
 # EPIC 1 — Monthly Energy Report PDF (Pro)
@@ -489,9 +491,11 @@ GET /reports/annual/csv?profile_id=&year=
 ```
 
 ---
+
 ---
 
 # EPIC 2 — Annual Summary & PBB Letter (Pro)
+
 # [Prompts sama seperti v1, tambahkan tier gate dan white-label]
 
 ## Prompt E2-T4&T5 — Annual PDF with Tier Gate & White-label
@@ -522,9 +526,11 @@ Also add endpoint:
 ```
 
 ---
+
 ---
 
 # EPIC 3 — MWh Accumulator & REC Readiness
+
 # [Sama seperti v1, tambahkan tier gate pada PDF]
 
 ## Prompt E3-T4 — REC Notification (Pro/Enterprise only)
@@ -555,9 +561,11 @@ In internal/accumulator/service.go, after UpdateAccumulator:
 ```
 
 ---
+
 ---
 
 # EPIC 4 — CO2 Avoided Tracker & MRV Report
+
 # [Sama seperti v1, tambahkan tier gate]
 
 ## Prompt E4-T5&T6 — MRV PDF with Tier Gate & White-label
@@ -583,6 +591,7 @@ Endpoint:
 ```
 
 ---
+
 ---
 
 # EPIC 5 — ESG Dashboard (Enterprise)
@@ -652,6 +661,7 @@ Add route /esg → <ESGDashboard /> with "ESG" in sidebar (always visible, but l
 ```
 
 ---
+
 ---
 
 # SHARED — Pricing Page

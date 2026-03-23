@@ -1,6 +1,7 @@
 package device
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +23,7 @@ type Service interface {
 	DeleteDevice(userID uuid.UUID, deviceID uuid.UUID) error
 	RotateDeviceKey(userID uuid.UUID, deviceID uuid.UUID) (*RotateKeyResponse, error)
 	IngestTelemetry(apiKey string, req IngestTelemetryRequest) (*IngestTelemetryResponse, error)
+	CountDevicesByUser(ctx context.Context, userID uuid.UUID) (int, error)
 }
 
 type service struct {
@@ -42,6 +45,18 @@ func (s *service) CreateDevice(userID uuid.UUID, req CreateDeviceRequest) (*Crea
 	externalID := strings.TrimSpace(req.ExternalID)
 	if externalID == "" {
 		return nil, fmt.Errorf("external_id is required")
+	}
+
+	// Check tier limit
+	limit := tier.DeviceLimit[req.PlanTier]
+	if limit != -1 {
+		count, err := s.repo.CountDevicesByUser(context.Background(), userID)
+		if err != nil {
+			return nil, err
+		}
+		if count >= limit {
+			return nil, tier.NewLimitError("perangkat", count, limit, req.PlanTier)
+		}
 	}
 
 	var solarProfileID *uuid.UUID
@@ -297,4 +312,7 @@ func bucketStart12h(ts time.Time) time.Time {
 		hour = 12
 	}
 	return time.Date(utc.Year(), utc.Month(), utc.Day(), hour, 0, 0, 0, time.UTC)
+}
+func (s *service) CountDevicesByUser(ctx context.Context, userID uuid.UUID) (int, error) {
+	return s.repo.CountDevicesByUser(ctx, userID)
 }

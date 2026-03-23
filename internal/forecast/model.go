@@ -47,6 +47,16 @@ type HistoryFilter struct {
 	SolarProfileID *uuid.UUID
 	StartDate      *time.Time
 	EndDate        *time.Time
+	Page           int
+	PageSize       int
+}
+
+// HistoryPaginatedResponse wraps historical data with total count for UI pagination.
+type HistoryPaginatedResponse[T any] struct {
+	Items      []T `json:"items"`
+	TotalCount int `json:"total_count"`
+	Page       int `json:"page"`
+	PageSize   int `json:"page_size"`
 }
 
 // CalibrationResult summarizes one adaptive efficiency update attempt.
@@ -81,6 +91,12 @@ type DashboardSummary struct {
 	ActualCount        int        `json:"actual_count"`
 	LastForecastDate   *time.Time `json:"last_forecast_date,omitempty"`
 	LastActualDate     *time.Time `json:"last_actual_date,omitempty"`
+	PlanTier           string     `json:"plan_tier"`
+	ProfileCount       int        `json:"profile_count"`
+	ProfileLimit       int        `json:"profile_limit"`
+	DeviceCount        int        `json:"device_count"`
+	DeviceLimit        int        `json:"device_limit"`
+	TotalMwh           float64    `json:"total_mwh"`
 }
 
 // ForecastDebugInputs captures the source variables used in one forecast calculation.

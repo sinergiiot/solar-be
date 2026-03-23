@@ -15,6 +15,7 @@ type Repository interface {
 	GetAllPreferences() ([]*NotificationPreference, error)
 	UpsertPreference(pref *NotificationPreference) error
 	MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error
+	GetPlanTier(userID uuid.UUID) (string, error)
 }
 
 type repository struct {
@@ -229,4 +230,18 @@ func (r *repository) MarkDailyForecastSent(userID uuid.UUID, forecastDate time.T
 
 func normalizeDateOnly(value time.Time) time.Time {
 	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// GetPlanTier returns only the plan_tier string for a user, defaulting to 'free' if no record exists.
+func (r *repository) GetPlanTier(userID uuid.UUID) (string, error) {
+	query := `SELECT plan_tier FROM notification_preferences WHERE user_id = $1`
+	var tier string
+	err := r.db.QueryRow(query, userID).Scan(&tier)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return PlanFree, nil
+		}
+		return PlanFree, fmt.Errorf("get plan tier: %w", err)
+	}
+	return tier, nil
 }

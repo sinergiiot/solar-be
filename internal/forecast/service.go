@@ -11,7 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/device"
+	"github.com/akbarsenawijaya/solar-forecast/internal/rec"
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
 	"github.com/google/uuid"
 )
@@ -35,32 +38,43 @@ type Service interface {
 	GetForecastDebugBreakdown(userID uuid.UUID, solarProfileID *uuid.UUID, date time.Time) (*ForecastDebugBreakdown, error)
 	RecordActualDaily(req RecordActualRequest) (*ActualDaily, error)
 	CalibrateEfficiencyForUser(userID uuid.UUID, date time.Time) (*CalibrationResult, error)
-	GetForecastHistory(userID uuid.UUID, days int, filter HistoryFilter) ([]*Forecast, error)
-	GetActualHistory(userID uuid.UUID, days int, filter HistoryFilter) ([]*ActualDaily, error)
-	GetDashboardSummary(userID uuid.UUID) (*DashboardSummary, error)
+	GetForecastHistory(userID uuid.UUID, planTier string, days int, filter HistoryFilter) (*HistoryPaginatedResponse[*Forecast], error)
+	GetActualHistory(userID uuid.UUID, planTier string, days int, filter HistoryFilter) (*HistoryPaginatedResponse[*ActualDaily], error)
+	GetDashboardSummary(userID uuid.UUID, planTier string) (*DashboardSummary, error)
 }
 
 
 // service implements forecast business logic, now with weatherbaseline
 type service struct {
-	repo           Repository
-	solarService   solar.Service
-	weatherService weather.Service
+	repo                   Repository
+	solarService           solar.Service
+	deviceService          device.Service
+	weatherService         weather.Service
+	recService             rec.Service
 	weatherBaselineService interface {
-        GetSyntheticBaseline(ctx context.Context, profileID, userID string, lat, lng float64) (float64, int, error)
-        GetSiteBaseline(ctx context.Context, profileID, userID string) (float64, int, error)
-    }
+		GetSyntheticBaseline(ctx context.Context, profileID, userID string, lat, lng float64) (float64, int, error)
+		GetSiteBaseline(ctx context.Context, profileID, userID string) (float64, int, error)
+	}
 }
 
 // NewService creates a new forecast service with weather baseline
-func NewService(repo Repository, solarSvc solar.Service, weatherSvc weather.Service, weatherBaselineSvc interface {
-	GetSyntheticBaseline(ctx context.Context, profileID, userID string, lat, lng float64) (float64, int, error)
-	GetSiteBaseline(ctx context.Context, profileID, userID string) (float64, int, error)
-}) Service {
+func NewService(
+	repo Repository,
+	solarSvc solar.Service,
+	deviceSvc device.Service,
+	weatherSvc weather.Service,
+	recSvc rec.Service,
+	weatherBaselineSvc interface {
+		GetSyntheticBaseline(ctx context.Context, profileID, userID string, lat, lng float64) (float64, int, error)
+		GetSiteBaseline(ctx context.Context, profileID, userID string) (float64, int, error)
+	},
+) Service {
 	return &service{
-		repo:           repo,
-		solarService:   solarSvc,
-		weatherService: weatherSvc,
+		repo:                   repo,
+		solarService:           solarSvc,
+		deviceService:          deviceSvc,
+		weatherService:         weatherSvc,
+		recService:             recSvc,
 		weatherBaselineService: weatherBaselineSvc,
 	}
 }
@@ -224,6 +238,9 @@ func (s *service) RecordActualDaily(req RecordActualRequest) (*ActualDaily, erro
 		return nil, err
 	}
 
+	// Update MWh accumulator whenever new actual data is recorded
+	_ = s.recService.UpdateAccumulator(context.Background(), a.UserID, a.SolarProfileID, a.ActualKwh)
+
 	return a, nil
 }
 
@@ -305,6 +322,25 @@ func (s *service) CalibrateEfficiencyForUser(userID uuid.UUID, date time.Time) (
 
 	if err := s.repo.UpdateUserEfficiency(userID, nextEfficiency); err != nil {
 		return nil, fmt.Errorf("update user efficiency for calibration: %w", err)
+	}
+
+	// Soiling Detection Logic
+	// Logic: If efficiency drops below threshold (minEfficiency) for multiple days, alert.
+	// We check if it's below minEfficiency (0.6).
+	if nextEfficiency <= minEfficiency {
+		// Count how many consecutive days have low efficiency
+		count, err := s.repo.CountValidActualDays(context.Background(), userID, profile.ID)
+		if err == nil && count >= 3 {
+			// Trigger alert if not already active
+			if !profile.SoilingAlertActive {
+				_ = s.solarService.UpdateSoilingAlert(profile.ID, true, time.Now().UTC())
+				log.Printf("[SOILING] Alert activated for user %s profile %s (efficiency: %.4f)", userID, profile.ID, nextEfficiency)
+			}
+		}
+	} else if nextEfficiency >= 0.7 && profile.SoilingAlertActive {
+		// Auto-clear alert if efficiency recovers noticeably
+		_ = s.solarService.UpdateSoilingAlert(profile.ID, false, time.Now().UTC())
+		log.Printf("[SOILING] Alert cleared for user %s profile %s (efficiency: %.4f)", userID, profile.ID, nextEfficiency)
 	}
 
 	return &CalibrationResult{
@@ -446,18 +482,66 @@ func CalculateForecastWithWeatherFactor(capacityKwp float64, psh float64, effici
 	return capacityKwp * psh * efficiency * weatherFactor
 }
 
-// GetForecastHistory returns recent forecasts for a user.
-func (s *service) GetForecastHistory(userID uuid.UUID, days int, filter HistoryFilter) ([]*Forecast, error) {
-	return s.repo.GetForecastHistoryByUser(userID, days, filter)
+func (s *service) GetForecastHistory(userID uuid.UUID, planTier string, days int, filter HistoryFilter) (*HistoryPaginatedResponse[*Forecast], error) {
+	limit, ok := tier.HistoryDaysLimit[planTier]
+	if !ok {
+		limit = 30 // Safe default
+	}
+	if limit != -1 && days > limit {
+		days = limit
+	} else if limit == -1 {
+		days = 3650 // arbitrarily large instead of -1 which breaks PostgreSQL interval logic
+	}
+
+	total, err := s.repo.CountForecastHistoryByUser(userID, days, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	items, err := s.repo.GetForecastHistoryByUser(userID, days, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HistoryPaginatedResponse[*Forecast]{
+		Items:      items,
+		TotalCount: total,
+		Page:       filter.Page,
+		PageSize:   filter.PageSize,
+	}, nil
 }
 
-// GetActualHistory returns recent actual measurements for a user.
-func (s *service) GetActualHistory(userID uuid.UUID, days int, filter HistoryFilter) ([]*ActualDaily, error) {
-	return s.repo.GetActualHistoryByUser(userID, days, filter)
+func (s *service) GetActualHistory(userID uuid.UUID, planTier string, days int, filter HistoryFilter) (*HistoryPaginatedResponse[*ActualDaily], error) {
+	limit, ok := tier.HistoryDaysLimit[planTier]
+	if !ok {
+		limit = 30 // Safe default
+	}
+	if limit != -1 && days > limit {
+		days = limit
+	} else if limit == -1 {
+		days = 3650 
+	}
+
+	total, err := s.repo.CountActualHistoryByUser(userID, days, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	items, err := s.repo.GetActualHistoryByUser(userID, days, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HistoryPaginatedResponse[*ActualDaily]{
+		Items:      items,
+		TotalCount: total,
+		Page:       filter.Page,
+		PageSize:   filter.PageSize,
+	}, nil
 }
 
-// GetDashboardSummary computes key performance indicators for the user dashboard.
-func (s *service) GetDashboardSummary(userID uuid.UUID) (*DashboardSummary, error) {
+// GetDashboardSummary computes key performance indicators for the user dashboard, including tier usage stats.
+func (s *service) GetDashboardSummary(userID uuid.UUID, planTier string) (*DashboardSummary, error) {
 	forecasts, err := s.repo.GetForecastHistoryByUser(userID, 90, HistoryFilter{})
 	if err != nil {
 		return nil, fmt.Errorf("get forecast history for summary: %w", err)
@@ -468,9 +552,27 @@ func (s *service) GetDashboardSummary(userID uuid.UUID) (*DashboardSummary, erro
 		return nil, fmt.Errorf("get actual history for summary: %w", err)
 	}
 
+	profileCount, err := s.solarService.CountProfilesByUserID(context.Background(), userID)
+	if err != nil {
+		profileCount = 0
+	}
+
+	deviceCount, err := s.deviceService.CountDevicesByUser(context.Background(), userID)
+	if err != nil {
+		deviceCount = 0
+	}
+
+	totalMwh, _ := s.recService.GetTotalMwhForUser(context.Background(), userID)
+
 	summary := &DashboardSummary{
 		ForecastCount: len(forecasts),
 		ActualCount:   len(actuals),
+		PlanTier:      planTier,
+		ProfileCount:  profileCount,
+		ProfileLimit:  tier.ProfileLimit[planTier],
+		DeviceCount:   deviceCount,
+		DeviceLimit:   tier.DeviceLimit[planTier],
+		TotalMwh:      totalMwh,
 	}
 
 	// Calculate totals and averages from forecasts

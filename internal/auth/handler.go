@@ -70,23 +70,24 @@ func (h *Handler) RegisterProtectedRoutes(r chi.Router) {
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	u, err := h.authService.Register(req.Name, req.Email, req.Password)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
+	WriteJSON(w, http.StatusCreated, map[string]any{
 		"message": "Akun berhasil dibuat. Silakan cek email untuk kode verifikasi.",
 		"verification_required": true,
 		"user": map[string]any{
 			"id":             u.ID,
 			"name":           u.Name,
 			"email":          u.Email,
+			"role":           u.Role,
 			"email_verified": u.EmailVerified,
 		},
 	})
@@ -96,23 +97,24 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	var req verifyEmailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	u, accessToken, refreshToken, err := h.authService.VerifyEmail(req.Email, req.Code)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	WriteJSON(w, http.StatusOK, map[string]any{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user": map[string]any{
 			"id":             u.ID,
 			"name":           u.Name,
 			"email":          u.Email,
+			"role":           u.Role,
 			"email_verified": u.EmailVerified,
 		},
 	})
@@ -122,39 +124,40 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	var req resendVerificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if err := h.authService.ResendVerification(req.Email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Kode verifikasi baru telah dikirim."})
+	WriteJSON(w, http.StatusOK, map[string]string{"message": "Kode verifikasi baru telah dikirim."})
 }
 
 // Login handles POST /auth/login.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	u, accessToken, refreshToken, err := h.authService.Login(req.Email, req.Password)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	WriteJSON(w, http.StatusOK, map[string]any{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user": map[string]any{
 			"id":             u.ID,
 			"name":           u.Name,
 			"email":          u.Email,
+			"role":           u.Role,
 			"email_verified": u.EmailVerified,
 		},
 	})
@@ -169,7 +172,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		// Best-effort revocation; ignore errors so logout always succeeds client-side.
 		_ = h.authService.RevokeRefreshToken(body.RefreshToken)
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+	WriteJSON(w, http.StatusOK, map[string]string{"message": "logged out"})
 }
 
 // Refresh handles POST /auth/refresh — issues new tokens using a valid refresh token.
@@ -178,17 +181,17 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RefreshToken == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token is required"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "refresh_token is required"})
 		return
 	}
 
 	accessToken, newRefreshToken, err := h.authService.RefreshTokens(body.RefreshToken)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
+	WriteJSON(w, http.StatusOK, map[string]string{
 		"access_token":  accessToken,
 		"refresh_token": newRefreshToken,
 	})
@@ -198,20 +201,21 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	userID, ok := UserIDFromContext(r.Context())
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 
 	u, err := h.userService.GetUserByID(userID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
+		WriteJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	WriteJSON(w, http.StatusOK, map[string]any{
 		"id":                  u.ID,
 		"name":                u.Name,
 		"email":               u.Email,
+		"role":                u.Role,
 		"email_verified":      u.EmailVerified,
 		"forecast_efficiency": u.ForecastEfficiency,
 	})
@@ -221,35 +225,35 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req forgotPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if err := h.authService.ForgotPassword(req.Email); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Kode reset password telah dikirim ke email Anda."})
+	WriteJSON(w, http.StatusOK, map[string]string{"message": "Kode reset password telah dikirim ke email Anda."})
 }
 
 // ResetPassword handles POST /auth/reset-password.
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req resetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if err := h.authService.ResetPassword(req.Email, req.Code, req.NewPassword); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Password Anda berhasil diperbarui. Silakan login kembali."})
+	WriteJSON(w, http.StatusOK, map[string]string{"message": "Password Anda berhasil diperbarui. Silakan login kembali."})
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)

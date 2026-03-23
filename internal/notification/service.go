@@ -22,6 +22,7 @@ type Service interface {
 	UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest) (*NotificationPreference, error)
 	DispatchDailyForecast(payload DispatchPayload) error
 	MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error
+	SendRECMilestoneEmail(toEmail string, userName string, mwh float64) error
 }
 
 type service struct {
@@ -98,8 +99,13 @@ func (s *service) UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest
 	if planTier == "" {
 		planTier = PlanFree
 	}
-	if planTier != PlanFree && planTier != PlanPaid {
-		return nil, fmt.Errorf("plan_tier must be free or paid")
+	if planTier != PlanFree && planTier != PlanPro && planTier != PlanEnterprise && planTier != PlanPaid {
+		return nil, fmt.Errorf("plan_tier must be free, pro, or enterprise")
+	}
+
+	// Normalize deprecated 'paid' to 'pro'
+	if planTier == PlanPaid {
+		planTier = PlanPro
 	}
 
 	primaryChannel := strings.TrimSpace(strings.ToLower(req.PrimaryChannel))
@@ -200,6 +206,30 @@ func (s *service) SendForecastEmail(payload EmailPayload) error {
 
 	if err := dialer.DialAndSend(m); err != nil {
 		return fmt.Errorf("send forecast email to %s: %w", payload.ToEmail, err)
+	}
+	return nil
+}
+
+// SendRECMilestoneEmail sends a congratulatory email to a user who reaches a MWh milestone.
+func (s *service) SendRECMilestoneEmail(toEmail string, userName string, mwh float64) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", "🎉 REC Readiness Milestone Reached!")
+	
+	body := fmt.Sprintf(`
+	<h2>Congratulations %s!</h2>
+	<p>You have successfully accumulated <strong>%.2f MWh</strong> of solar energy production.</p>
+	<p>You are now eligible to claim Renewable Energy Certificates (RECs) for your green energy contribution.</p>
+	<p>Log in to your dashboard to download your REC-ready production report.</p>
+	`, userName, mwh)
+	
+	m.SetBody("text/html", body)
+
+	dialer := gomail.NewDialer(s.host, s.port, s.username, s.password)
+
+	if err := dialer.DialAndSend(m); err != nil {
+		return fmt.Errorf("send REC email to %s: %w", toEmail, err)
 	}
 	return nil
 }
