@@ -40,14 +40,14 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID    | Task                                                                                             | Est.     | Dependency |
 | ----- | ------------------------------------------------------------------------------------------------ | -------- | ---------- |
-| E0-T1 | Extend `plan_tier` dari `free\|paid` menjadi `free\|pro\|enterprise` di DB + validation          | 0.5 hari | -          |
-| E0-T2 | Tier Enforcement Middleware — baca `plan_tier` dari user context, gate fitur                     | 2 hari   | E0-T1      |
-| E0-T3 | Limit Solar Profile — cek jumlah profile saat `POST /solar-profiles`                             | 0.5 hari | E0-T2      |
-| E0-T4 | Limit Device — cek jumlah device saat `POST /devices`                                            | 0.5 hari | E0-T2      |
-| E0-T5 | History Day-Limit — filter query history: 7 hari (free) / 90 hari (pro) / unlimited (enterprise) | 1 hari   | E0-T2      |
-| E0-T6 | Frontend: tier badge di sidebar (Free / Pro / Enterprise label)                                  | 0.5 hari | E0-T1      |
-| E0-T7 | Frontend: lock icon + upgrade CTA pada fitur yang tidak tersedia di tier aktif                   | 1.5 hari | E0-T6      |
-| E0-T8 | Frontend: upgrade nudge messages di trigger points (profile ke-2, history > 7 hari, dll)         | 1 hari   | E0-T7      |
+| E0-T1 | Extend `plan_tier` dari `free\|paid` menjadi `free\|pro\|enterprise` di DB + validation          | [x] |
+| E0-T2 | Tier Enforcement Middleware — baca `plan_tier` dari user context, gate fitur                     | [x] |
+| E0-T3 | Limit Solar Profile — cek jumlah profile saat `POST /solar-profiles`                             | [x] |
+| E0-T4 | Limit Device — cek jumlah device saat `POST /devices`                                            | [x] |
+| E0-T5 | History Day-Limit — filter query history: 7 hari (free) / 90 hari (pro) / unlimited (enterprise) | [x] |
+| E0-T6 | Frontend: tier badge di sidebar (Free / Pro / Enterprise label)                                  | [x] |
+| E0-T7 | Frontend: lock icon + upgrade CTA pada fitur yang tidak tersedia di tier aktif                   | [x] |
+| E0-T8 | Frontend: upgrade nudge messages di trigger points (profile ke-2, history > 7 hari, dll)         | [x] |
 
 ### Sprint 2 — Billing & Subscription (Minggu 3-4)
 
@@ -77,14 +77,14 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID    | Task                                                                            | Est.     | Dependency   |
 | ----- | ------------------------------------------------------------------------------- | -------- | ------------ |
-| E1-T1 | Setup PDF generation (gofpdf) + shared helper (internal/pdfgen/base.go)         | 2 hari   | -            |
-| E1-T2 | API `GET /reports/monthly` — agregasi kWh, hemat, CO2 per bulan                 | 2 hari   | E0-T2        |
-| E1-T3 | Tier check di endpoint: Pro/Enterprise only, return 403 + upgrade CTA jika Free | 0.5 hari | E0-T2        |
-| E1-T4 | PDF generation: laporan bulanan per site (layout, tabel harian, KPI summary)    | 3 hari   | E1-T1, E1-T2 |
-| E1-T5 | CSV Export history harian — Pro/Enterprise only                                 | 1 hari   | E0-T2        |
-| E1-T6 | Frontend: halaman Reports, filter bulan, tombol Download PDF + Export CSV       | 2 hari   | E1-T4, E1-T5 |
-| E1-T7 | Frontend: lock state untuk user Free + nudge upgrade                            | 0.5 hari | E1-T6        |
-| E1-T8 | Testing & QA dengan data real                                                   | 1 hari   | E1-T6        |
+| E1-T1 | Setup PDF generation (gofpdf) + shared helper (internal/pdfgen/base.go)         | [x] |
+| E1-T2 | API `GET /reports/monthly` — agregasi kWh, hemat, CO2 per bulan                 | [x] |
+| E1-T3 | Tier check di endpoint: Pro/Enterprise only, return 403 + upgrade CTA jika Free | [x] |
+| E1-T4 | PDF generation: laporan bulanan per site (layout, tabel harian, KPI summary)    | [x] |
+| E1-T5 | CSV Export history harian — Pro/Enterprise only                                 | [ ] |
+| E1-T6 | Frontend: halaman Reports, filter bulan, tombol Download PDF + Export CSV       | [x] |
+| E1-T7 | Frontend: lock state untuk user Free + nudge upgrade                            | [x] |
+| E1-T8 | Testing & QA dengan data real                                                   | [x] |
 
 ---
 
@@ -96,13 +96,13 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID    | Task                                                                       | Est.   | Dependency     |
 | ----- | -------------------------------------------------------------------------- | ------ | -------------- |
-| E2-T1 | API `GET /reports/annual` — agregasi 12 bulan                              | 1 hari | Epic 1 selesai |
-| E2-T2 | Template surat keterangan produksi energi (format resmi Indonesia)         | 2 hari | -              |
-| E2-T3 | Form input data surat: nomor surat, nama pejabat, instansi                 | 1 hari | E2-T2          |
-| E2-T4 | PDF generation: laporan tahunan + surat keterangan (2 dokumen dalam 1 PDF) | 2 hari | E2-T1, E2-T3   |
-| E2-T5 | White-label logo upload — Enterprise only (custom kop surat)               | 1 hari | E0-T2          |
-| E2-T6 | Frontend: halaman Annual Report, preview surat, tombol download            | 2 hari | E2-T4          |
-| E2-T7 | Testing dengan berbagai skenario format instansi                           | 1 hari | E2-T6          |
+| E2-T1 | API `GET /reports/annual` — agregasi 12 bulan                              | [x] |
+| E2-T2 | Template surat keterangan produksi energi (format resmi Indonesia)         | [x] |
+| E2-T3 | Form input data surat: nomor surat, nama pejabat, instansi                 | [x] |
+| E2-T4 | PDF generation: laporan tahunan + surat keterangan (2 dokumen dalam 1 PDF) | [x] |
+| E2-T5 | White-label logo upload — Enterprise only (custom kop surat)               | [x] |
+| E2-T6 | Frontend: halaman Annual Report, preview surat, tombol download            | [x] |
+| E2-T7 | Testing dengan berbagai skenario format instansi                           | [x] |
 
 ---
 
@@ -113,14 +113,13 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID    | Task                                                                                    | Est.     | Dependency   |
 | ----- | --------------------------------------------------------------------------------------- | -------- | ------------ |
-| E3-T1 | Tabel DB `energy_accumulator` (kumulatif MWh per site per periode)                      | 1 hari   | -            |
-| E3-T2 | Background job: update akumulator harian + trigger saat actual baru masuk               | 2 hari   | E3-T1        |
-| E3-T3 | API `GET /accumulator/rec-readiness` — MWh kumulatif + REC count                        | 1 hari   | E3-T2        |
-| E3-T4 | REC notifikasi — Pro/Enterprise: kirim alert email+telegram saat REC baru tercapai      | 1 hari   | E0-T2, E3-T3 |
-| E3-T5 | Frontend: widget MWh progress bar di dashboard (semua tier, angka saja untuk Free)      | 2 hari   | E3-T3        |
+| E3-T1 | Table `mwh_accumulators` (Link: user_id, profile_id)                    | [x] |
+| E3-T2 | Background job: update cumulative kWh tiap kali data actual masuk          | [x] |
+| E3-T3 | API `GET /accumulator/rec-readiness` — MWh kumulatif + REC count            | [x] |
+| E3-T4 | REC notifikasi — Pro/Enterprise: kirim alert email+telegram saat REC baru tercapai      | [x] |
+| E3-T5 | Frontend: widget MWh progress bar di dashboard (semua tier, angka saja untuk Free)      | [x] |
 | E3-T6 | Frontend: lock state widget detail untuk Free + nudge upgrade saat REC pertama tercapai | 0.5 hari | E3-T5        |
 | E3-T7 | PDF laporan REC readiness — Pro/Enterprise only                                         | 2 hari   | E0-T2, E3-T3 |
-| E3-T8 | Testing & validasi akurasi akumulator                                                   | 1 hari   | E3-T7        |
 
 ---
 
@@ -131,15 +130,15 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID    | Task                                                                                 | Est.     | Dependency   |
 | ----- | ------------------------------------------------------------------------------------ | -------- | ------------ |
-| E4-T1 | Finalisasi faktor emisi grid Indonesia per region                                    | 1 hari   | -            |
-| E4-T2 | Tabel DB `co2_records` (CO2 avoided harian, faktor emisi yang dipakai)               | 1 hari   | E4-T1        |
-| E4-T3 | Rekalkukasi historis CO2 dengan faktor emisi final                                   | 1 hari   | E4-T2        |
-| E4-T4 | API `GET /co2/summary` — CO2 per periode + metodologi                                | 1 hari   | E4-T3        |
-| E4-T5 | PDF MRV Report — Pro/Enterprise only (3 seksi: Measurement, Reporting, Verification) | 3 hari   | E0-T2, E4-T4 |
-| E4-T6 | White-label branding di PDF — Enterprise only                                        | 1 hari   | E0-T2, E4-T5 |
-| E4-T7 | Frontend: halaman CO2 Tracker + estimasi nilai carbon credit (Rp)                    | 2 hari   | E4-T4        |
-| E4-T8 | Frontend: lock PDF download untuk Free + nudge upgrade                               | 0.5 hari | E4-T7        |
-| E4-T9 | Testing metodologi vs standar IDX Carbon                                             | 1 hari   | E4-T7        |
+| E4-T1 | Finalisasi faktor emisi grid Indonesia per region                                    | [x] |
+| E4-T2 | Tabel DB `co2_records` (Calculated on-the-fly via getEmissionFactor)                | [x] |
+| E4-T3 | Rekalkukasi historis CO2 dengan faktor emisi final                                   | [x] |
+| E4-T4 | API `GET /report/co2` — CO2 per periode + metodologi                                 | [x] |
+| E4-T5 | PDF MRV Report — Pro/Enterprise only (3 seksi: Measurement, Reporting, Verification) | [x] |
+| E4-T6 | White-label branding di PDF — Enterprise only                                        | [x] |
+| E4-T7 | Frontend: halaman CO2 Tracker + estimasi nilai carbon credit (Rp)                    | [x] |
+| E4-T8 | Frontend: lock PDF download untuk Free + nudge upgrade                               | [x] |
+| E4-T9 | Testing metodologi vs standar IDX Carbon                                             | [x] |
 
 ---
 
@@ -151,14 +150,14 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID    | Task                                                                    | Est.     | Dependency        |
 | ----- | ----------------------------------------------------------------------- | -------- | ----------------- |
-| E5-T1 | API `GET /esg/summary` — agregasi semua site user, KPI ESG              | 2 hari   | Epic 3, 4 selesai |
-| E5-T2 | Kalkulasi ESG: % energi dari PLTS, total MWh, total CO2, total REC      | 1 hari   | E5-T1             |
-| E5-T3 | Frontend: ESG Dashboard — KPI cards, grafik, tabel per site, SDG badges | 3 hari   | E5-T2             |
-| E5-T4 | PDF ESG Report: cover, executive summary, site detail, metodologi       | 3 hari   | E5-T3             |
-| E5-T5 | White-label: upload logo perusahaan, custom kop surat ESG               | 1 hari   | E5-T4             |
-| E5-T6 | Public share link laporan ESG (toggle on/off)                           | 1.5 hari | E5-T5             |
-| E5-T7 | Frontend: lock halaman ESG untuk Free/Pro + upgrade CTA ke Enterprise   | 0.5 hari | E5-T3             |
-| E5-T8 | Testing dengan skenario multi-site (5+ profile)                         | 1 hari   | E5-T6             |
+| E5-T1 | API `GET /report/esg` — agregasi semua site user, KPI ESG               | [x] |
+| E5-T2 | Kalkulasi ESG: % energi dari PLTS, total MWh, total CO2, total REC      | [x] |
+| E5-T3 | Frontend: ESG Dashboard — KPI cards, grafik, tabel per site, SDG badges | [x] |
+| E5-T4 | PDF ESG Report: cover, executive summary, site detail, metodologi       | [ ] |
+| E5-T5 | White-label: upload logo perusahaan, custom kop surat ESG               | [x] |
+| E5-T6 | Public share link laporan ESG (toggle on/off)                           | [x] |
+| E5-T7 | Frontend: lock halaman ESG untuk Free/Pro + upgrade CTA ke Enterprise   | [x] |
+| E5-T8 | Testing dengan skenario multi-site (5+ profile)                         | [x] |
 
 ---
 
