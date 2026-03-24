@@ -100,7 +100,8 @@ func (s *service) GetSiteBaseline(ctx context.Context, profileID, userID string)
 		return 0, 0, errors.New("repo does not expose *sql.DB")
 	}
 	query := `SELECT wd.cloud_cover_mean FROM actual_daily ad
-		JOIN weather_daily wd ON ad.date = wd.date AND ad.solar_profile_id = wd.id
+		JOIN weather_daily wd ON ad.date = wd.date
+		JOIN solar_profiles sp ON ad.solar_profile_id = sp.id AND sp.lat = wd.lat AND sp.lng = wd.lng
 		WHERE ad.solar_profile_id = $1 AND ad.user_id = $2 AND ad.actual_kwh > 0 AND wd.cloud_cover_mean IS NOT NULL`
 	rows, err := db.QueryContext(ctx, query, profileID, userID)
 	if err != nil {
@@ -137,15 +138,10 @@ func (s *service) GetSiteBaseline(ctx context.Context, profileID, userID string)
 	return avg, count, nil
 }
 
-// getDBFromRepo tries to extract *sql.DB from repo for direct query (hack for now)
-func getDBFromRepo(repo interface{}) (*sql.DB, bool) {
-	type dbGetter interface{ DB() *sql.DB }
-	if getter, ok := repo.(dbGetter); ok {
-		return getter.DB(), true
+// getDBFromRepo tries to extract *sql.DB from repo
+func getDBFromRepo(repo Repository) (*sql.DB, bool) {
+	if repo == nil {
+		return nil, false
 	}
-	// fallback: try to access db field
-	if r, ok := repo.(*struct{ DB *sql.DB }); ok {
-		return r.DB, true
-	}
-	return nil, false
+	return repo.DB(), true
 }

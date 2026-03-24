@@ -2,6 +2,7 @@ package weatherbaseline
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
@@ -30,4 +31,5 @@ type WeatherBaseline struct {
 type Repository interface {
 	GetBaseline(ctx context.Context, profileID, userID string, baselineType BaselineType) (*WeatherBaseline, error)
 	SaveBaseline(ctx context.Context, b *WeatherBaseline) error
+	DB() *sql.DB
 }

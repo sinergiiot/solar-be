@@ -173,7 +173,7 @@ func (s *service) generateForecastForProfile(userID uuid.UUID, solarProfileID uu
 		SolarProfileID:    &profile.ID,
 		Date:              date,
 		PredictedKwh:      predictedKwh,
-		WeatherFactor:     deltaRes.WeatherFactor, // correct weather factor (not deltaWF)
+		WeatherFactor:     deltaRes.DeltaWF, // correct weather factor (DeltaWF)
 		CloudCover:        int(w.CloudCover),      // store as percent int
 		Efficiency:        efficiency,
 		DeltaWF:           deltaRes.DeltaWF,

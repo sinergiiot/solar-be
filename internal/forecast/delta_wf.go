@@ -48,10 +48,16 @@ func ComputeDeltaWF(ctx context.Context, repo countActualDaysRepo, wbSvc weather
 		// Calibrated: use site baseline
 		b, _, err := wbSvc.GetSiteBaseline(ctx, profileID, userID)
 		if err != nil {
-			return DeltaWFResult{}, fmt.Errorf("get site baseline: %w", err)
+			// Fallback to synthetic if site baseline fails (e.g. no valid pairs in DB yet)
+			b, _, err = wbSvc.GetSyntheticBaseline(ctx, profileID, userID, lat, lng)
+			if err != nil {
+				return DeltaWFResult{}, fmt.Errorf("get site baseline fallback: %w", err)
+			}
+			baselineType = "synthetic"
+		} else {
+			baselineType = "site"
 		}
 		baseline = b
-		baselineType = "site"
 
 	} else {
 		// Transition: blend synthetic and site baseline
@@ -119,14 +125,14 @@ func parseUUID(s string) (uuid.UUID, error) {
 // deltaWF    : 0.5–1.1 (float64, after clamp, from DeltaWFResult.DeltaWF)
 // returns    : "Risiko Tinggi" | "Risiko Sedang" | "Risiko Rendah"
 func DetermineWeatherRisk(cloudCover int, deltaWF float64) string {
-	// 1. Risiko Tinggi : cloud_cover > 90  OR  delta_wf < 0.60
+	// Rule 1 — evaluate first, highest priority
 	if cloudCover > 90 || deltaWF < 0.60 {
-		return "Potensi Drop Drastis"
+		return "Risiko Tinggi"
 	}
-	// 2. Risiko Sedang : cloud_cover 80–90 OR  delta_wf 0.60–0.85
+	// Rule 2 — evaluate second
 	if cloudCover >= 80 || deltaWF <= 0.85 {
-		return "Potensi Fluktuasi"
+		return "Risiko Sedang"
 	}
-	// 3. Risiko Rendah
-	return "Produksi Optimal"
+	// Rule 3 — fallback
+	return "Risiko Rendah"
 }

@@ -42,3 +42,7 @@ func (r *repository) SaveBaseline(ctx context.Context, b *WeatherBaseline) error
 	}
 	return nil
 }
+
+func (r *repository) DB() *sql.DB {
+	return r.db
+}

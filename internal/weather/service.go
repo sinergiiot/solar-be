@@ -57,7 +57,7 @@ func (s *service) FetchWeatherForDate(lat, lng float64, date time.Time) (*Weathe
 func (s *service) fetchFromOpenMeteo(lat, lng float64, date time.Time) (*WeatherDaily, error) {
 	dateStr := date.Format("2006-01-02")
 	url := fmt.Sprintf(
-		"%s/forecast?latitude=%.4f&longitude=%.4f&daily=cloud_cover_mean,temperature_2m_mean,shortwave_radiation_sum&start_date=%s&end_date=%s&timezone=UTC",
+		"%s/forecast?latitude=%.4f&longitude=%.4f&daily=cloud_cover_mean,temperature_2m_mean,shortwave_radiation_sum&start_date=%s&end_date=%s&timezone=Asia%%2FJakarta",
 		s.baseURL, lat, lng, dateStr, dateStr,
 	)
 
@@ -94,6 +94,7 @@ func (s *service) fetchFromOpenMeteo(lat, lng float64, date time.Time) (*Weather
 		Lat:                  lat,
 		Lng:                  lng,
 		CloudCover:           int(apiResp.Daily.CloudCoverMean[0]),
+		CloudCoverMean:       apiResp.Daily.CloudCoverMean[0],
 		Temperature:          apiResp.Daily.Temperature2mMean[0],
 		ShortwaveRadiationMJ: apiResp.Daily.ShortwaveRadiationSum[0],
 		RawJSON:              string(body),
