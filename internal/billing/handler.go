@@ -16,10 +16,14 @@ func NewHandler(service Service) *Handler {
 	return &Handler{service: service}
 }
 
-func (h *Handler) RegisterRoutes(r chi.Router) {
+func (h *Handler) RegisterPublicRoutes(r chi.Router) {
+	r.Post("/billing/webhook", h.Webhook)
+}
+
+func (h *Handler) RegisterProtectedRoutes(r chi.Router) {
 	r.Post("/billing/checkout", h.Checkout)
 	r.Get("/billing/subscription", h.GetSubscription)
-	r.Post("/billing/webhook", h.Webhook) // Public route potentially
+	r.Post("/billing/subscription/cancel", h.CancelSubscription)
 }
 
 func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
@@ -65,8 +69,39 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sub)
 }
 
+func (h *Handler) CancelSubscription(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	if err := h.service.CancelSubscription(r.Context(), userID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "subscription cancelled and tier reset to free"})
+}
+
 func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
-	// Handle payment notification
+	var payload map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	orderID, _ := payload["order_id"].(string)
+	if orderID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	if err := h.service.HandleWebhook(r.Context(), orderID, payload); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

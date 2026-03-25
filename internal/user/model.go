@@ -16,6 +16,11 @@ type User struct {
 	EmailVerifiedAt    *time.Time `json:"email_verified_at,omitempty"`
 	PasswordHash       string    `json:"-"`
 	ForecastEfficiency float64   `json:"forecast_efficiency"`
+	CompanyLogoURL     string    `json:"company_logo_url"`
+	CompanyName        string    `json:"company_name"`
+	// E5-T6: ESG Public Share
+	ESGShareToken   string `json:"esg_share_token,omitempty"`
+	ESGShareEnabled bool   `json:"esg_share_enabled"`
 	CreatedAt          time.Time `json:"created_at"`
 }
 

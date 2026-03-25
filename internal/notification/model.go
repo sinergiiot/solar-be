@@ -82,15 +82,14 @@ type NotificationPreference struct {
 	WhatsAppOptedIn   bool      `json:"whatsapp_opted_in"`
 	Timezone          string    `json:"timezone"`
 	PreferredSendTime string    `json:"preferred_send_time"`
+	PlanExpiresAt     *time.Time `json:"plan_expires_at,omitempty"`
 	LastDailyForecastSentAt      *time.Time `json:"last_daily_forecast_sent_at,omitempty"`
 	LastDailyForecastSentForDate *time.Time `json:"last_daily_forecast_sent_for_date,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// UpsertPreferenceRequest contains editable fields for user notification preferences.
 type UpsertPreferenceRequest struct {
-	PlanTier          string `json:"plan_tier"`
 	PrimaryChannel    string `json:"primary_channel"`
 	EmailEnabled      bool   `json:"email_enabled"`
 	TelegramEnabled   bool   `json:"telegram_enabled"`

@@ -95,8 +95,8 @@ func main() {
 		cfg.SMTP.Password,
 		cfg.SMTP.From,
 	)
-	billingSvc := billing.NewService(billingRepo)
-	reportSvc := report.NewService(forecastSvc, solarSvc)
+	billingSvc := billing.NewService(billingRepo, notifSvc, userSvc, cfg.Midtrans.ServerKey, cfg.Midtrans.IsProduction, cfg.Midtrans.AppBaseURL)
+	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc)
 	adminSvc := admin.NewService(db, userSvc)
 	apiKeySvc := apikey.NewService(apiKeyRepo, userSvc)
 
@@ -119,6 +119,8 @@ func main() {
 	adminHandler := admin.NewHandler(adminSvc)
 	authHandler.RegisterPublicRoutes(r)
 	deviceHandler.RegisterPublicRoutes(r)
+	reportHandler.RegisterPublicRoutes(r)
+	billingHandler.RegisterPublicRoutes(r)
 
 	r.Group(func(protected chi.Router) {
 		apiKeyValidator := &auth.ServiceBridge{
@@ -132,16 +134,22 @@ func main() {
 		forecast.NewHandler(forecastSvc, cfg.Debug.ForecastToken).RegisterRoutes(protected)
 		deviceHandler.RegisterProtectedRoutes(protected)
 		notifHandler.RegisterRoutes(protected)
-		billingHandler.RegisterRoutes(protected)
+		billingHandler.RegisterProtectedRoutes(protected)
 		reportHandler.RegisterRoutes(protected)
 		adminHandler.RegisterRoutes(protected)
 		apikey.NewHandler(apiKeySvc).RegisterRoutes(protected)
+		user.NewHandler(userSvc).RegisterRoutes(protected)
+		rec.NewHandler(recSvc).RegisterRoutes(protected)
 	})
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
+
+	// Serve uploaded files (e.g. logos) statically
+	uploadsDir := http.Dir(filepath.Join(".", "uploads"))
+	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(uploadsDir)))
 
 	// Start HTTP server and wait for OS signal to shut down
 	addr := ":" + cfg.Port

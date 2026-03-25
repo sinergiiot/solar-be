@@ -79,6 +79,33 @@ func (r *repository) UpdateSubscription(ctx context.Context, sub *Subscription) 
 	return nil
 }
 
+func (r *repository) GetSubscriptionByExternalID(ctx context.Context, extID string) (*Subscription, error) {
+	query := `
+		SELECT id, user_id, plan_tier, status, billing_cycle,
+			amount, currency, external_checkout_id, expires_at,
+			next_billing_at, last_payment_at, grace_period_until,
+			created_at, updated_at
+		FROM subscriptions
+		WHERE external_checkout_id = $1
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	sub := &Subscription{}
+	err := r.db.QueryRowContext(ctx, query, extID).Scan(
+		&sub.ID, &sub.UserID, &sub.PlanTier, &sub.Status, &sub.BillingCycle,
+		&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.ExpiresAt,
+		&sub.NextBillingAt, &sub.LastPaymentAt, &sub.GracePeriodUntil,
+		&sub.CreatedAt, &sub.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get subscription by external id: %w", err)
+	}
+	return sub, nil
+}
+
+
 func (r *repository) GetPastDueSubscriptions(ctx context.Context, now time.Time) ([]*Subscription, error) {
 	query := `
 		SELECT id, user_id, plan_tier, status, expires_at
@@ -88,6 +115,30 @@ func (r *repository) GetPastDueSubscriptions(ctx context.Context, now time.Time)
 	rows, err := r.db.QueryContext(ctx, query, now)
 	if err != nil {
 		return nil, fmt.Errorf("get past due subscriptions: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []*Subscription
+	for rows.Next() {
+		sub := &Subscription{}
+		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.PlanTier, &sub.Status, &sub.ExpiresAt); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, nil
+}
+
+func (r *repository) GetExpiringSubscriptions(ctx context.Context, start, end time.Time) ([]*Subscription, error) {
+	query := `
+		SELECT id, user_id, plan_tier, status, expires_at
+		FROM subscriptions
+		WHERE status = 'active'
+		  AND expires_at >= $1 AND expires_at < $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("get expiring subscriptions: %w", err)
 	}
 	defer rows.Close()
 

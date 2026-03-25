@@ -5,15 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/akbarsenawijaya/solar-forecast/pkg/ctxkeys"
 	"github.com/google/uuid"
-)
-
-type contextKey string
-
-const (
-	UserIDContextKey contextKey = "auth_user_id"
-	RoleContextKey   contextKey = "auth_user_role"
-	IsAPIKeyContextKey contextKey = "auth_is_api_key"
 )
 
 // APIKeyValidator defines the interface needed to validate API keys without circular dependency
@@ -39,9 +32,9 @@ func Middleware(authService Service, apiKeyValidator APIKeyValidator) func(http.
 			if apiKey != "" && apiKeyValidator != nil {
 				userID, role, err := apiKeyValidator.ValidateKey(apiKey)
 				if err == nil {
-					ctx := context.WithValue(r.Context(), UserIDContextKey, userID)
-					ctx = context.WithValue(ctx, RoleContextKey, role)
-					ctx = context.WithValue(ctx, IsAPIKeyContextKey, true)
+					ctx := context.WithValue(r.Context(), ctxkeys.UserID, userID)
+					ctx = context.WithValue(ctx, ctxkeys.UserRole, role)
+					ctx = context.WithValue(ctx, ctxkeys.IsAPIKey, true)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
@@ -69,10 +62,10 @@ func Middleware(authService Service, apiKeyValidator APIKeyValidator) func(http.
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), UserIDContextKey, userID)
+			ctx := context.WithValue(r.Context(), ctxkeys.UserID, userID)
 			role, _ := claims["role"].(string)
-			ctx = context.WithValue(ctx, RoleContextKey, role)
-			ctx = context.WithValue(ctx, IsAPIKeyContextKey, false)
+			ctx = context.WithValue(ctx, ctxkeys.UserRole, role)
+			ctx = context.WithValue(ctx, ctxkeys.IsAPIKey, false)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
@@ -81,12 +74,12 @@ func Middleware(authService Service, apiKeyValidator APIKeyValidator) func(http.
 
 // UserIDFromContext extracts authenticated user id from request context.
 func UserIDFromContext(ctx context.Context) (uuid.UUID, bool) {
-	userID, ok := ctx.Value(UserIDContextKey).(uuid.UUID)
+	userID, ok := ctx.Value(ctxkeys.UserID).(uuid.UUID)
 	return userID, ok
 }
 
 // UserRoleFromContext extracts authenticated user role from request context.
 func UserRoleFromContext(ctx context.Context) string {
-	role, _ := ctx.Value(RoleContextKey).(string)
+	role, _ := ctx.Value(ctxkeys.UserRole).(string)
 	return role
 }

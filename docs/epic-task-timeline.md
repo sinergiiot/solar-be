@@ -53,13 +53,13 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 
 | ID     | Task                                                                                | Est.     | Dependency |
 | ------ | ----------------------------------------------------------------------------------- | -------- | ---------- |
-| E0-T9  | Tabel DB `subscriptions` (user_id, tier, start_date, end_date, status, payment_ref) | 1 hari   | E0-T1      |
-| E0-T10 | Pricing page frontend — perbandingan tier, bisa diakses tanpa login                 | 1 hari   | -          |
-| E0-T11 | Payment Gateway integration (Midtrans / Xendit) — checkout flow                     | 3 hari   | E0-T9      |
-| E0-T12 | Webhook handler — terima callback payment, aktivasi tier otomatis                   | 2 hari   | E0-T11     |
-| E0-T13 | Grace period logic — downgrade ke free setelah 7 hari expired                       | 0.5 hari | E0-T12     |
-| E0-T14 | Subscription management page — status, tanggal expired, tombol upgrade/cancel       | 1.5 hari | E0-T12     |
-| E0-T15 | Email notifikasi: konfirmasi upgrade, reminder 7 hari sebelum expired               | 1 hari   | E0-T12     |
+| E0-T9  | Tabel DB `subscriptions` (user_id, tier, start_date, end_date, status, payment_ref) | [x] | E0-T1      |
+| E0-T10 | Pricing page frontend — perbandingan tier, bisa diakses tanpa login                 | [x] |
+| E0-T11 | Payment Gateway integration (Midtrans / Xendit) — checkout flow                     | [x] | E0-T9      |
+| E0-T12 | Webhook handler — terima callback payment, aktivasi tier otomatis                   | [x] | E0-T11     |
+| E0-T13 | Grace period logic — downgrade ke free setelah 7 hari expired                       | [x] | E0-T12     |
+| E0-T14 | Subscription management page — status, tanggal expired, tombol upgrade/cancel       | [x] | E0-T12     |
+| E0-T15 | Email notifikasi: konfirmasi upgrade, reminder 7 hari sebelum expired               | [x] | E0-T12     |
 
 **Quick Win (bisa dikerjakan hari ini tanpa menunggu billing):**
 
@@ -81,7 +81,7 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 | E1-T2 | API `GET /reports/monthly` — agregasi kWh, hemat, CO2 per bulan                 | [x] |
 | E1-T3 | Tier check di endpoint: Pro/Enterprise only, return 403 + upgrade CTA jika Free | [x] |
 | E1-T4 | PDF generation: laporan bulanan per site (layout, tabel harian, KPI summary)    | [x] |
-| E1-T5 | CSV Export history harian — Pro/Enterprise only                                 | [ ] |
+| E1-T5 | CSV Export history harian — Pro/Enterprise only                                 | [x] |
 | E1-T6 | Frontend: halaman Reports, filter bulan, tombol Download PDF + Export CSV       | [x] |
 | E1-T7 | Frontend: lock state untuk user Free + nudge upgrade                            | [x] |
 | E1-T8 | Testing & QA dengan data real                                                   | [x] |
@@ -118,8 +118,8 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 | E3-T3 | API `GET /accumulator/rec-readiness` — MWh kumulatif + REC count            | [x] |
 | E3-T4 | REC notifikasi — Pro/Enterprise: kirim alert email+telegram saat REC baru tercapai      | [x] |
 | E3-T5 | Frontend: widget MWh progress bar di dashboard (semua tier, angka saja untuk Free)      | [x] |
-| E3-T6 | Frontend: lock state widget detail untuk Free + nudge upgrade saat REC pertama tercapai | 0.5 hari | E3-T5        |
-| E3-T7 | PDF laporan REC readiness — Pro/Enterprise only                                         | 2 hari   | E0-T2, E3-T3 |
+| E3-T6 | Frontend: lock state widget detail untuk Free + nudge upgrade saat REC pertama tercapai | [x] |
+| E3-T7 | PDF laporan REC readiness — Pro/Enterprise only                                         | [x] |
 
 ---
 
@@ -153,7 +153,7 @@ Apr 2026      Mei 2026      Jun 2026      Jul 2026      Agt 2026      Sep 2026  
 | E5-T1 | API `GET /report/esg` — agregasi semua site user, KPI ESG               | [x] |
 | E5-T2 | Kalkulasi ESG: % energi dari PLTS, total MWh, total CO2, total REC      | [x] |
 | E5-T3 | Frontend: ESG Dashboard — KPI cards, grafik, tabel per site, SDG badges | [x] |
-| E5-T4 | PDF ESG Report: cover, executive summary, site detail, metodologi       | [ ] |
+| E5-T4 | PDF ESG Report: cover, executive summary, site detail, metodologi       | [x] |
 | E5-T5 | White-label: upload logo perusahaan, custom kop surat ESG               | [x] |
 | E5-T6 | Public share link laporan ESG (toggle on/off)                           | [x] |
 | E5-T7 | Frontend: lock halaman ESG untuk Free/Pro + upgrade CTA ke Enterprise   | [x] |

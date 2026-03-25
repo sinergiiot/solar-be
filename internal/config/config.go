@@ -22,6 +22,7 @@ type Config struct {
 	Telegram TelegramConfig
 	WhatsApp WhatsAppConfig
 	Weather  WeatherConfig
+	Midtrans MidtransConfig
 }
 
 // DebugConfig holds access control values for internal debug endpoints.
@@ -69,6 +70,14 @@ type WeatherConfig struct {
 	BaseURL string
 }
 
+// MidtransConfig holds Midtrans payment gateway settings.
+type MidtransConfig struct {
+	ServerKey    string
+	ClientKey    string
+	IsProduction bool
+	AppBaseURL   string
+}
+
 // Load reads environment variables and returns a Config struct
 func Load() *Config {
 	if err := godotenv.Load(); err != nil {
@@ -108,6 +117,12 @@ func Load() *Config {
 		},
 		Weather: WeatherConfig{
 			BaseURL: getEnv("WEATHER_BASE_URL", "https://api.open-meteo.com/v1"),
+		},
+		Midtrans: MidtransConfig{
+			ServerKey:    getEnv("MIDTRANS_SERVER_KEY", ""),
+			ClientKey:    getEnv("MIDTRANS_CLIENT_KEY", ""),
+			IsProduction: getEnvAsBool("MIDTRANS_IS_PRODUCTION", false),
+			AppBaseURL:   getEnv("APP_BASE_URL", "http://localhost:5173"),
 		},
 	}
 }

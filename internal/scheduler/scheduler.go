@@ -58,6 +58,11 @@ func (s *Scheduler) Start() {
 		log.Printf("failed to register subscription cleanup cron: %v", err)
 	}
 
+	_, err = s.cron.AddFunc("0 1 * * * *", s.runSubscriptionExpiryNotice)
+	if err != nil {
+		log.Printf("failed to register subscription expiry notice cron: %v", err)
+	}
+
 	s.cron.Start()
 	log.Println("Scheduler started: background jobs active")
 }
@@ -391,5 +396,13 @@ func (s *Scheduler) runSubscriptionCleanup() {
 	ctx := context.Background()
 	if err := s.billingService.CleanupExpiredSubscriptions(ctx); err != nil {
 		log.Printf("cleanup: failed to process expired subscriptions: %v", err)
+	}
+}
+
+func (s *Scheduler) runSubscriptionExpiryNotice() {
+	log.Println("Running background subscription expiry notice...")
+	ctx := context.Background()
+	if err := s.billingService.NotifyExpiringSubscriptions(ctx); err != nil {
+		log.Printf("expiry notice: failed to notify users: %v", err)
 	}
 }

@@ -211,14 +211,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, map[string]any{
-		"id":                  u.ID,
-		"name":                u.Name,
-		"email":               u.Email,
-		"role":                u.Role,
-		"email_verified":      u.EmailVerified,
-		"forecast_efficiency": u.ForecastEfficiency,
-	})
+	WriteJSON(w, http.StatusOK, u)
 }
 
 // ForgotPassword handles POST /auth/forgot-password.

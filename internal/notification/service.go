@@ -23,6 +23,9 @@ type Service interface {
 	DispatchDailyForecast(payload DispatchPayload) error
 	MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error
 	SendRECMilestoneEmail(toEmail string, userName string, mwh float64) error
+	SetPlanTier(userID uuid.UUID, tier string, expiresAt *time.Time) error
+	SendUpgradeConfirmationEmail(toEmail, userName, tier string, expiresAt time.Time) error
+	SendSubscriptionExpiringEmail(toEmail, userName, tier string, expiresAt time.Time) error
 }
 
 type service struct {
@@ -95,18 +98,13 @@ func (s *service) GetAllPreferences() ([]*NotificationPreference, error) {
 
 // UpsertPreference validates and stores one user's notification preference.
 func (s *service) UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest) (*NotificationPreference, error) {
-	planTier := strings.TrimSpace(strings.ToLower(req.PlanTier))
-	if planTier == "" {
-		planTier = PlanFree
+	// PlanTier should NOT be editable by user here.
+	// We first fetch current preference (which also ensures default exists).
+	current, err := s.GetPreference(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch current preference: %w", err)
 	}
-	if planTier != PlanFree && planTier != PlanPro && planTier != PlanEnterprise && planTier != PlanPaid {
-		return nil, fmt.Errorf("plan_tier must be free, pro, or enterprise")
-	}
-
-	// Normalize deprecated 'paid' to 'pro'
-	if planTier == PlanPaid {
-		planTier = PlanPro
-	}
+	planTier := current.PlanTier
 
 	primaryChannel := strings.TrimSpace(strings.ToLower(req.PrimaryChannel))
 	if primaryChannel == "" {
@@ -165,6 +163,88 @@ func (s *service) UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest
 	return s.GetPreference(userID)
 }
 
+// SetPlanTier updates the plan tier for a user. This is intended to be called by the billing service.
+func (s *service) SetPlanTier(userID uuid.UUID, tier string, expiresAt *time.Time) error {
+	tier = strings.TrimSpace(strings.ToLower(tier))
+	if tier == "" {
+		tier = PlanFree
+	}
+	if tier != PlanFree && tier != PlanPro && tier != PlanEnterprise && tier != PlanPaid {
+		return fmt.Errorf("invalid plan tier: %s", tier)
+	}
+	if tier == PlanPaid {
+		tier = PlanPro
+	}
+
+	pref, err := s.GetPreference(userID)
+	if err != nil {
+		return err
+	}
+	pref.PlanTier = tier
+	pref.PlanExpiresAt = expiresAt
+	pref.UpdatedAt = time.Now()
+	return s.repo.UpsertPreference(pref)
+}
+
+func (s *service) SendUpgradeConfirmationEmail(toEmail, userName, tier string, expiresAt time.Time) error {
+	subject := fmt.Sprintf("Pembayaran Berhasil: Upgrade Paket %s Aktif!", strings.Title(tier))
+
+	localExpiry := expiresAt.Format("02 January 2006")
+	body := buildBaseEmailTemplate(fmt.Sprintf(`
+		<div style="text-align: center; padding: 20px 0;">
+			<div style="background: #ecfdf5; color: #059669; width: 64px; height: 64px; line-height: 64px; border-radius: 50%%; font-size: 32px; margin: 0 auto 20px;">✓</div>
+			<h2 style="color: #111827; margin: 0;">Pembayaran Berhasil!</h2>
+			<p style="color: #6b7280; font-size: 16px;">Akun Anda kini telah resmi ditingkatkan.</p>
+		</div>
+		<div style="background: #f9fafb; border-radius: 12px; padding: 20px; margin-bottom: 24px;">
+			<table style="width: 100%%; border-collapse: collapse;">
+				<tr>
+					<td style="color: #6b7280; padding: 8px 0;">Paket Baru</td>
+					<td style="text-align: right; font-weight: 600; color: #111827;">%s</td>
+				</tr>
+				<tr>
+					<td style="color: #6b7280; padding: 8px 0;">Masa Berlaku</td>
+					<td style="text-align: right; font-weight: 600; color: #111827;">%s</td>
+				</tr>
+			</table>
+		</div>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Halo <strong>%s</strong>, terima kasih telah mempercayakan transisi energi Anda kepada kami. 
+			Seluruh fitur Green Compliance sekarang telah terbuka untuk Anda.
+		</p>
+		<div style="text-align: center; margin-top: 32px;">
+			<a href="http://localhost:5173/dashboard" style="background: #10b981; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Masuk ke Dashboard</a>
+		</div>
+	`, strings.Title(tier), localExpiry, userName))
+
+	return s.sendEmail(toEmail, subject, body)
+}
+
+// SendSubscriptionExpiringEmail sends a reminder 7 days before subscription expires.
+func (s *service) SendSubscriptionExpiringEmail(toEmail, userName, tier string, expiresAt time.Time) error {
+	subject := "Peringatan: Langganan Solar Forecast Segera Berakhir"
+	localExpiry := expiresAt.Format("02 January 2006")
+
+	body := buildBaseEmailTemplate(fmt.Sprintf(`
+		<div style="text-align: center; padding: 20px 0;">
+			<div style="background: #fffbeb; color: #d97706; width: 64px; height: 64px; line-height: 64px; border-radius: 50%%; font-size: 32px; margin: 0 auto 20px;">!</div>
+			<h2 style="color: #111827; margin: 0;">Langganan Segera Berakhir</h2>
+			<p style="color: #6b7280; font-size: 16px;">Pastikan akses Anda tetap aktif tanpa gangguan.</p>
+		</div>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Halo <strong>%s</strong>, masa berlaku paket <strong>%s</strong> Anda akan habis pada tanggal <strong>%s</strong>.
+		</p>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Perpanjang sekarang untuk menjaga akses laporan PDF bulanan, tracker CO2, dan data historis tanpa batas Anda.
+		</p>
+		<div style="text-align: center; margin-top: 32px;">
+			<a href="http://localhost:5173/dashboard" style="background: #10b981; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Perpanjang Sekarang</a>
+		</div>
+	`, userName, strings.Title(tier), localExpiry))
+
+	return s.sendEmail(toEmail, subject, body)
+}
+
 // DispatchDailyForecast routes one forecast payload through user-preferred channels with fallback policy.
 func (s *service) DispatchDailyForecast(payload DispatchPayload) error {
 	pref, err := s.GetPreference(payload.UserID)
@@ -210,28 +290,41 @@ func (s *service) SendForecastEmail(payload EmailPayload) error {
 	return nil
 }
 
-// SendRECMilestoneEmail sends a congratulatory email to a user who reaches a MWh milestone.
 func (s *service) SendRECMilestoneEmail(toEmail string, userName string, mwh float64) error {
-	m := gomail.NewMessage()
-	m.SetHeader("From", s.from)
-	m.SetHeader("To", toEmail)
-	m.SetHeader("Subject", "🎉 REC Readiness Milestone Reached!")
-	
-	body := fmt.Sprintf(`
-	<h2>Congratulations %s!</h2>
-	<p>You have successfully accumulated <strong>%.2f MWh</strong> of solar energy production.</p>
-	<p>You are now eligible to claim Renewable Energy Certificates (RECs) for your green energy contribution.</p>
-	<p>Log in to your dashboard to download your REC-ready production report.</p>
-	`, userName, mwh)
-	
-	m.SetBody("text/html", body)
+	subject := "🎉 REC Readiness Milestone Tercapai!"
 
-	dialer := gomail.NewDialer(s.host, s.port, s.username, s.password)
+	body := buildBaseEmailTemplate(fmt.Sprintf(`
+		<div style="text-align: center; padding: 20px 0;">
+			<div style="background: #fef3c7; color: #d97706; width: 64px; height: 64px; line-height: 64px; border-radius: 50%%; font-size: 32px; margin: 0 auto 20px;">🏆</div>
+			<h2 style="color: #111827; margin: 0;">Pencapaian Baru!</h2>
+			<p style="color: #6b7280; font-size: 16px;">Produksi Energi Bersih Anda Luar Biasa.</p>
+		</div>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Selamat <strong>%s</strong>! Akumulasi produksi energi PLTS Anda telah mencapai <strong>%.2f MWh</strong>.
+		</p>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Dengan angka ini, Anda kini memenuhi syarat untuk mengklaim <strong>Renewable Energy Certificates (REC)</strong> sebagai bukti kontribusi nyata Anda pada transisi energi hijau.
+		</p>
+		<div style="text-align: center; margin-top: 32px;">
+			<a href="http://localhost:5173/dashboard" style="background: #10b981; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Lihat Laporan REC</a>
+		</div>
+	`, userName, mwh))
 
-	if err := dialer.DialAndSend(m); err != nil {
+	if err := s.sendEmail(toEmail, subject, body); err != nil {
 		return fmt.Errorf("send REC email to %s: %w", toEmail, err)
 	}
 	return nil
+}
+
+func (s *service) sendEmail(toEmail, subject, htmlBody string) error {
+	m := gomail.NewMessage()
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", toEmail)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/html", htmlBody)
+
+	dialer := gomail.NewDialer(s.host, s.port, s.username, s.password)
+	return dialer.DialAndSend(m)
 }
 
 // resolveChannelOrder returns delivery channel priority based on plan and user preference.
@@ -504,70 +597,104 @@ func buildEmailBody(p EmailPayload) string {
 	solarProfile := emptyFallback(p.SolarProfileName, "-")
 	forecastDate := formatForecastDate(p.Date)
 
+	content := fmt.Sprintf(`
+		<div style="margin-bottom: 24px;">
+			<div style="float: right; background: #e5e7eb; padding: 4px 12px; border-radius: 20px; font-size: 12px; color: #4b5563; font-weight: 600;">%s</div>
+			<h2 style="color: #111827; margin: 0 0 8px 0;">☀️ Produksi PLTS Hari Ini</h2>
+			<p style="color: #6b7280; font-size: 16px; margin: 0;">Laporan harian untuk lokasi: <strong>%s</strong></p>
+		</div>
+
+		<div style="background: #f9fafb; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+			<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+				<div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 12px;">
+					<div style="color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Prediksi Energi</div>
+					<div style="font-size: 24px; font-weight: 700; color: #10b981;">%.2f <span style="font-size: 14px; font-weight: 400;">kWh</span></div>
+				</div>
+				<div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 12px;">
+					<div style="color: #6b7280; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">CO2 Avoided</div>
+					<div style="font-size: 24px; font-weight: 700; color: #3b82f6;">%.2f <span style="font-size: 14px; font-weight: 400;">kg</span></div>
+				</div>
+			</div>
+
+			<table style="width: 100%%; border-collapse: collapse; margin-top: 12px;">
+				<tr style="border-bottom: 1px solid #e5e7eb;">
+					<td style="padding: 12px 0; color: #6b7280;">Kondisi Cuaca</td>
+					<td style="padding: 12px 0; text-align: right; font-weight: 600;">%s</td>
+				</tr>
+				<tr style="border-bottom: 1px solid #e5e7eb;">
+					<td style="padding: 12px 0; color: #6b7280;">Cloud Cover</td>
+					<td style="padding: 12px 0; text-align: right; font-weight: 600;">%d%%</td>
+				</tr>
+				<tr style="border-bottom: 1px solid #e5e7eb;">
+					<td style="padding: 12px 0; color: #6b7280;">Efisiensi Panel</td>
+					<td style="padding: 12px 0; text-align: right; font-weight: 600;">%.1f%%</td>
+				</tr>
+				<tr>
+					<td style="padding: 12px 0; color: #6b7280;">Deviasi vs Referensi</td>
+					<td style="padding: 12px 0; text-align: right; font-weight: 600; color: #111827;">%s (%s)</td>
+				</tr>
+			</table>
+		</div>
+
+		<p style="color: #4b5563; line-height: 1.6; font-size: 15px;">
+			Berdasarkan koordinat lokasi PLTS Anda, cuaca diprediksi <strong>%s</strong> hari ini. 
+			Produksi energi diproyeksikan memberikan penghematan sebesar <strong>%s</strong>.
+		</p>
+
+		<div style="text-align: center; margin-top: 32px;">
+			<a href="http://localhost:5173/dashboard" style="background: #10b981; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Analisis Lengkap di Dashboard</a>
+		</div>
+	`, forecastDate, solarProfile, p.PredictedKwh, p.EstimatedCO2Kg, p.ConditionLabel, p.CloudCover, p.Efficiency*100, deviation, reference, p.ConditionLabel, formatCurrency(p.EstimatedCost))
+
+	return buildBaseEmailTemplate(content)
+}
+
+func buildBaseEmailTemplate(content string) string {
 	return fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
-<body style="font-family: Arial, sans-serif; padding: 20px;">
-  <h2>☀️ Daily Solar Forecast</h2>
-  <p>Hi <strong>%s</strong>,</p>
-  <p>Berikut adalah laporan harian dari profil <strong>%s</strong>:</p>
-  <table style="border-collapse: collapse; width: 400px; text-align: left;">
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Prediksi energi</td>
-      <td style="padding: 8px; border: 1px solid #ddd;"><strong>%.2f kWh</strong></td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Cloud Cover?</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%d%%</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Weather Factor (Transmittance)?</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%.2f</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Baseline Type?</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Efficiency?</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%.1f%%</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Tanggal forecast</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Solar profile aktif</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Estimasi hemat biaya</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Estimasi CO2 dihindari?</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%.2f kgCO2</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Deviasi vs actual referensi?</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Referensi</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-    <tr>
-      <td style="padding: 8px; border: 1px solid #ddd;">Status risiko cuaca</td>
-      <td style="padding: 8px; border: 1px solid #ddd;">%s</td>
-    </tr>
-  </table>
-  <br/>
-  <p style="color: #333; line-height: 1.5; max-width: 600px;">
-    Hari ini berdasarkan ramalan cuaca koordinat %.4f, %.4f, diprediksi %s, %s, dan estimasi produksi energi harian Anda sekitar %.2f kWh dengan potensi penghematan %s.
-  </p>
-  <br/>
-  <p style="color: #888; font-size: 12px;">Solar Forecast System — automated daily report</p>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Solar Forecast Notification</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table width="100%%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+		<tr>
+			<td align="center">
+				<table width="100%%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+					<!-- Header / Brand -->
+					<tr>
+						<td style="background-color: #111827; padding: 32px; text-align: center;">
+							<div style="color: #10b981; font-size: 24px; font-weight: 800; letter-spacing: -0.025em;">
+								SOLAR<span style="color: #ffffff;">FORECAST</span>
+							</div>
+							<div style="color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; margin-top: 4px;">Energy Transition Monitor</div>
+						</td>
+					</tr>
+					<!-- Main Content -->
+					<tr>
+						<td style="padding: 40px 32px;">
+							%s
+						</td>
+					</tr>
+					<!-- Footer -->
+					<tr>
+						<td style="background-color: #f9fafb; padding: 32px; text-align: center; border-top: 1px solid #e5e7eb;">
+							<p style="color: #9ca3af; font-size: 14px; margin: 0 0 16px 0;">Solar Forecast Sinergi IoT Nusantara</p>
+							<div style="margin-bottom: 16px;">
+								<a href="#" style="color: #6b7280; text-decoration: none; margin: 0 8px; font-size: 13px;">Privacy Policy</a>
+								<a href="#" style="color: #6b7280; text-decoration: none; margin: 0 8px; font-size: 13px;">Support</a>
+								<a href="#" style="color: #6b7280; text-decoration: none; margin: 0 8px; font-size: 13px;">Portal</a>
+							</div>
+							<p style="color: #d1d5db; font-size: 12px; margin: 0;">&copy; %d Solar Forecast. All rights reserved.</p>
+						</td>
+					</tr>
+				</table>
+			</td>
+		</tr>
+	</table>
 </body>
 </html>
-`, p.ToName, solarProfile, p.PredictedKwh, p.CloudCover, p.WeatherFactor, p.BaselineType, p.Efficiency*100, forecastDate, solarProfile, formatCurrency(p.EstimatedCost), p.EstimatedCO2Kg, deviation, reference, p.WeatherRisk, p.Lat, p.Lng, p.ConditionLabel, p.ConditionImpact, p.PredictedKwh, formatCurrency(p.EstimatedCost))
+	`, content, time.Now().Year())
 }

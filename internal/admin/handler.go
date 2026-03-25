@@ -20,6 +20,7 @@ func NewHandler(adminSvc Service) *Handler {
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/admin/users", h.GetAllUsers)
 	r.Put("/admin/users/{id}/tier", h.UpdateTier)
+	r.Get("/admin/stats", h.GetStats)
 }
 
 func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
@@ -64,4 +65,18 @@ func (h *Handler) UpdateTier(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.WriteJSON(w, http.StatusOK, map[string]string{"message": "tier updated"})
+}
+func (h *Handler) GetStats(w http.ResponseWriter, r *http.Request) {
+	if auth.UserRoleFromContext(r.Context()) != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	stats, err := h.adminSvc.GetSystemStats(r.Context())
+	if err != nil {
+		auth.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	auth.WriteJSON(w, http.StatusOK, stats)
 }

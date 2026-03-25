@@ -248,11 +248,30 @@ func (s *service) sendAndStoreVerificationCode(u *user.User) error {
 		return fmt.Errorf("store verification code: %w", err)
 	}
 
+	htmlBody := fmt.Sprintf(`
+		<div style="text-align: center; padding: 20px 0;">
+			<div style="background: #f0fdf4; color: #16a34a; width: 64px; height: 64px; line-height: 64px; border-radius: 50%%; font-size: 32px; margin: 0 auto 20px;">👤</div>
+			<h2 style="color: #111827; margin: 0;">Verifikasi Akun Anda</h2>
+			<p style="color: #6b7280; font-size: 16px;">Satu langkah lagi untuk mulai memantau energi bersih Anda.</p>
+		</div>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Halo <strong>%s</strong>, terima kasih telah mendaftar di Solar Forecast.
+			Berikut adalah kode verifikasi unik Anda:
+		</p>
+		<div style="background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+			<div style="font-family: monospace; font-size: 36px; font-weight: 800; letter-spacing: 0.1em; color: #1e293b;">%s</div>
+			<div style="color: #94a3b8; font-size: 12px; margin-top: 12px; text-transform: uppercase;">Berlaku sampai %s</div>
+		</div>
+		<p style="color: #64748b; font-size: 14px;">
+			Jika Anda tidak merasa melakukan registrasi ini, mohon abaikan email ini.
+		</p>
+	`, u.Name, code, expiresAt.Format("15:04:05 2006-01-02"))
+
 	message := gomail.NewMessage()
 	message.SetHeader("From", s.smtpFrom)
 	message.SetHeader("To", u.Email)
 	message.SetHeader("Subject", "Solar Forecast - Kode Verifikasi Email")
-	message.SetBody("text/plain", fmt.Sprintf("Halo %s,\n\nKode verifikasi akun Solar Forecast Anda adalah: %s\nKode berlaku sampai %s (UTC).\n\nJika Anda tidak melakukan registrasi, abaikan email ini.", u.Name, code, expiresAt.Format("15:04:05 2006-01-02")))
+	message.SetBody("text/html", s.buildBaseEmailTemplate(htmlBody))
 
 	dialer := gomail.NewDialer(s.smtpHost, s.smtpPort, s.smtpUsername, s.smtpPassword)
 	if err := dialer.DialAndSend(message); err != nil {
@@ -412,11 +431,29 @@ func (s *service) ForgotPassword(email string) error {
 		return fmt.Errorf("store reset code: %w", err)
 	}
 
+	htmlBody := fmt.Sprintf(`
+		<div style="text-align: center; padding: 20px 0;">
+			<div style="background: #fff1f2; color: #e11d48; width: 64px; height: 64px; line-height: 64px; border-radius: 50%%; font-size: 32px; margin: 0 auto 20px;">🛡️</div>
+			<h2 style="color: #111827; margin: 0;">Atur Ulang Password</h2>
+			<p style="color: #6b7280; font-size: 16px;">Kami menerima permintaan untuk merest password Anda.</p>
+		</div>
+		<p style="color: #4b5563; line-height: 1.6;">
+			Halo <strong>%s</strong>, gunakan kode di bawah ini untuk memulai proses pengaturan ulang password.
+		</p>
+		<div style="background: #f8fafc; border: 2px dashed #fecaca; border-radius: 12px; padding: 24px; text-align: center; margin: 24px 0;">
+			<div style="font-family: monospace; font-size: 36px; font-weight: 800; letter-spacing: 0.1em; color: #111827;">%s</div>
+			<div style="color: #94a3b8; font-size: 12px; margin-top: 12px; text-transform: uppercase;">Berlaku sampai %s</div>
+		</div>
+		<p style="color: #64748b; font-size: 14px;">
+			Jika Anda tidak merasa melakukan permintaan ini, segera amankan akun Anda atau hubungi dukungan teknis kami.
+		</p>
+	`, u.Name, code, expiresAt.Format("15:04:05 2006-01-02"))
+
 	message := gomail.NewMessage()
 	message.SetHeader("From", s.smtpFrom)
 	message.SetHeader("To", u.Email)
 	message.SetHeader("Subject", "Solar Forecast - Reset Password")
-	message.SetBody("text/plain", fmt.Sprintf("Halo %s,\n\nKami menerima permintaan untuk reset password akun Solar Forecast Anda.\nKode reset Anda adalah: %s\nKode berlaku sampai %s (UTC).\n\nJika Anda tidak merasa melakukan permintaan ini, abaikan email ini.", u.Name, code, expiresAt.Format("15:04:05 2006-01-02")))
+	message.SetBody("text/html", s.buildBaseEmailTemplate(htmlBody))
 
 	dialer := gomail.NewDialer(s.smtpHost, s.smtpPort, s.smtpUsername, s.smtpPassword)
 	if err := dialer.DialAndSend(message); err != nil {
@@ -493,4 +530,42 @@ func (s *service) buildAccessToken(userID uuid.UUID, role string) (string, error
 	}
 
 	return signed, nil
+}
+func (s *service) buildBaseEmailTemplate(content string) string {
+	return fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+	<table width="100%%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+		<tr>
+			<td align="center">
+				<table width="100%%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+					<tr>
+						<td style="background-color: #111827; padding: 32px; text-align: center;">
+							<div style="color: #10b981; font-size: 24px; font-weight: 800;">
+								SOLAR<span style="color: #ffffff;">FORECAST</span>
+							</div>
+						</td>
+					</tr>
+					<tr>
+						<td style="padding: 40px 32px;">
+							%s
+						</td>
+					</tr>
+					<tr>
+						<td style="background-color: #f9fafb; padding: 24px; text-align: center; border-top: 1px solid #e5e7eb; color: #9ca3af; font-size: 13px;">
+							&copy; %d Solar Forecast. All rights reserved.
+						</td>
+					</tr>
+				</table>
+			</td>
+		</tr>
+	</table>
+</body>
+</html>
+	`, content, time.Now().Year())
 }

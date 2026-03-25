@@ -70,3 +70,20 @@ func (s *service) UpdateUserTier(ctx context.Context, userID uuid.UUID, newTier 
 	}
 	return nil
 }
+
+func (s *service) GetSystemStats(ctx context.Context) (*SystemStats, error) {
+	stats := &SystemStats{}
+
+	// 1. User counts
+	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&stats.TotalUsers)
+	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM notification_preferences WHERE plan_tier = 'pro'").Scan(&stats.TotalPro)
+	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM notification_preferences WHERE plan_tier = 'enterprise'").Scan(&stats.TotalEnterprise)
+
+	// 2. Production stats
+	_ = s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(actual_kwh), 0) FROM actual_daily").Scan(&stats.TotalKwh)
+
+	// 3. REC/Profile stats
+	_ = s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM solar_profiles").Scan(&stats.TotalProfiles)
+
+	return stats, nil
+}

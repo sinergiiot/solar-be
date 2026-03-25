@@ -17,6 +17,11 @@ type Service interface {
 	GetUserByEmail(email string) (*User, error)
 	MarkEmailVerified(id uuid.UUID) error
 	UpdatePassword(id uuid.UUID, plainPassword string) error
+	UpdateBranding(id uuid.UUID, companyName, logoURL string) error
+	// E5-T6: ESG Share
+	EnableESGShare(id uuid.UUID) (string, error)
+	DisableESGShare(id uuid.UUID) error
+	GetUserByESGShareToken(token string) (*User, error)
 }
 
 type service struct {
@@ -57,6 +62,8 @@ func (s *service) CreateUser(req CreateUserRequest) (*User, error) {
 		EmailVerifiedAt:    nil,
 		PasswordHash:       string(passwordHash),
 		ForecastEfficiency: 0.8,
+		CompanyLogoURL:     "",
+		CompanyName:        "",
 		CreatedAt:          time.Now().UTC(),
 	}
 
@@ -102,4 +109,31 @@ func (s *service) UpdatePassword(id uuid.UUID, plainPassword string) error {
 	}
 
 	return s.repo.UpdatePassword(id, string(passwordHash))
+}
+
+// UpdateBranding updates the company logo and name for a user.
+func (s *service) UpdateBranding(id uuid.UUID, companyName, logoURL string) error {
+	return s.repo.UpdateBranding(id, companyName, logoURL)
+}
+
+// EnableESGShare generates a new share token and enables public ESG sharing.
+func (s *service) EnableESGShare(id uuid.UUID) (string, error) {
+	token, err := GenerateShareToken()
+	if err != nil {
+		return "", fmt.Errorf("generate share token: %w", err)
+	}
+	if err := s.repo.SetESGShareToken(id, token, true); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// DisableESGShare disables public ESG sharing and clears the token.
+func (s *service) DisableESGShare(id uuid.UUID) error {
+	return s.repo.SetESGShareToken(id, "", false)
+}
+
+// GetUserByESGShareToken finds a user by their public share token.
+func (s *service) GetUserByESGShareToken(token string) (*User, error) {
+	return s.repo.GetUserByESGShareToken(token)
 }
