@@ -241,7 +241,7 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// GetCO2Summary handles GET /report/co2 — Epic 4: CO2 Avoided Tracker
+// GetCO2Summary handles GET /report/co2 - Epic 4: CO2 Avoided Tracker
 // DownloadESGReportPDF handles GET /report/esg/pdf
 func (h *Handler) DownloadESGReportPDF(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.UserIDFromContext(r.Context())
@@ -349,7 +349,7 @@ func (h *Handler) GetCO2Summary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, summary)
 }
 
-// DownloadMRVPDF handles GET /report/co2/pdf — Epic 4: MRV PDF Download
+// DownloadMRVPDF handles GET /report/co2/pdf - Epic 4: MRV PDF Download
 func (h *Handler) DownloadMRVPDF(w http.ResponseWriter, r *http.Request) {
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {

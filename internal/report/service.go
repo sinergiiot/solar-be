@@ -365,7 +365,7 @@ func (s *service) GetCO2Summary(ctx context.Context, userID uuid.UUID, planTier 
 		PeriodEnd:      endDate,
 		EmissionFactor: emissionFactor,
 		GridRegion:     gridRegion,
-		Standard:       "ESDM 2023 — Faktor Emisi GRK Sektor Pembangkit Listrik Indonesia",
+		Standard:       "ESDM 2023 - Faktor Emisi GRK Sektor Pembangkit Listrik Indonesia",
 		PlanTier:       planTier,
 	}
 

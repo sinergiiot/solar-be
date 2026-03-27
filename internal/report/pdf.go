@@ -47,7 +47,7 @@ func generateExecutiveSummaryPage(pdf *gofpdf.Fpdf, report *EnergyReport, userOb
 	}
 
 	pdf.SetFont("Arial", "", 12)
-	pdf.Text(15, 30, fmt.Sprintf("%s — %s", companyName, time.Now().Format("January 2006")))
+	pdf.Text(15, 30, fmt.Sprintf("%s - %s", companyName, time.Now().Format("January 2006")))
 
 	// Move cursor down
 	pdf.SetY(50)
@@ -413,9 +413,9 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 		companyName = userObj.CompanyName
 	}
 
-	// ─────────────────────────────────────────────────
+	// -------------------------------------------------
 	// PAGE 1: COVER
-	// ─────────────────────────────────────────────────
+	// -------------------------------------------------
 	pdf.AddPage()
 
 	// Background gradient-like header
@@ -433,7 +433,7 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 	pdf.SetFont("Arial", "", 13)
 	pdf.Text(15, 40, "Measurement, Reporting & Verification")
 	pdf.SetFont("Arial", "", 11)
-	pdf.Text(15, 52, fmt.Sprintf("%s  •  %s", companyName, summary.PeriodStart.Format("2 Jan 2006")+" – "+summary.PeriodEnd.Format("2 Jan 2006")))
+	pdf.Text(15, 52, fmt.Sprintf("%s  *  %s", companyName, summary.PeriodStart.Format("2 Jan 2006")+" - "+summary.PeriodEnd.Format("2 Jan 2006")))
 
 	// Badge
 	pdf.SetFillColor(255, 255, 255)
@@ -473,7 +473,7 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 	pdf.SetFont("Arial", "B", 10)
 	pdf.Text(15, 178, "Faktor Emisi Grid:")
 	pdf.SetFont("Arial", "", 10)
-	pdf.Text(55, 178, fmt.Sprintf("%.4f kg CO2/kWh — %s", summary.EmissionFactor, summary.GridRegion))
+	pdf.Text(55, 178, fmt.Sprintf("%.4f kg CO2/kWh - %s", summary.EmissionFactor, summary.GridRegion))
 	pdf.SetFont("Arial", "B", 10)
 	pdf.Text(15, 186, "Referensi Metodologi:")
 	pdf.SetFont("Arial", "", 10)
@@ -483,12 +483,12 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 	pdf.SetY(270)
 	pdf.SetTextColor(150, 150, 150)
 	pdf.SetFont("Arial", "I", 8)
-	pdf.Text(15, 274, fmt.Sprintf("Digenerate oleh Solar Forecast Platform  •  %s  •  Hal 1/3",
+	pdf.Text(15, 274, fmt.Sprintf("Digenerate oleh Solar Forecast Platform  *  %s  *  Hal 1/3",
 		time.Now().Format("02 Jan 2006 15:04")))
 
-	// ─────────────────────────────────────────────────
+	// -------------------------------------------------
 	// PAGE 2: MEASUREMENT & REPORTING
-	// ─────────────────────────────────────────────────
+	// -------------------------------------------------
 	pdf.AddPage()
 
 	// Section header
@@ -496,7 +496,7 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 	pdf.Rect(0, 0, 210, 20, "F")
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Arial", "B", 14)
-	pdf.Text(15, 13, "Bagian I — Measurement & Reporting")
+	pdf.Text(15, 13, "Bagian I - Measurement & Reporting")
 
 	// Methodology explanation
 	pdf.SetTextColor(40, 40, 40)
@@ -522,11 +522,11 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 	pdf.SetFont("Arial", "", 10)
 	pdf.SetTextColor(70, 70, 70)
 	metodLines := []string{
-		fmt.Sprintf("• Faktor emisi yang digunakan: %.4f kg CO2/kWh (%s)", summary.EmissionFactor, summary.GridRegion),
-		"• Sumber referensi: Kementerian ESDM RI — Nilai Emisi GRK Sektor Pembangkit Listrik 2023",
-		"• Data produksi: Rekaman aktual dari inverter / perangkat IoT yang terhubung ke platform",
-		fmt.Sprintf("• Periode: %s s/d %s", summary.PeriodStart.Format("02 Jan 2006"), summary.PeriodEnd.Format("02 Jan 2006")),
-		fmt.Sprintf("• Total hari data: %d entri produksi", len(summary.DailyBreakdown)),
+		fmt.Sprintf("* Faktor emisi yang digunakan: %.4f kg CO2/kWh (%s)", summary.EmissionFactor, summary.GridRegion),
+		"* Sumber referensi: Kementerian ESDM RI - Nilai Emisi GRK Sektor Pembangkit Listrik 2023",
+		"* Data produksi: Rekaman aktual dari inverter / perangkat IoT yang terhubung ke platform",
+		fmt.Sprintf("* Periode: %s s/d %s", summary.PeriodStart.Format("02 Jan 2006"), summary.PeriodEnd.Format("02 Jan 2006")),
+		fmt.Sprintf("* Total hari data: %d entri produksi", len(summary.DailyBreakdown)),
 	}
 	for _, l := range metodLines {
 		pdf.Text(20, y, l)
@@ -574,16 +574,16 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 		}
 	}
 
-	// ─────────────────────────────────────────────────
+	// -------------------------------------------------
 	// PAGE 3: VERIFICATION
-	// ─────────────────────────────────────────────────
+	// -------------------------------------------------
 	pdf.AddPage()
 
 	pdf.SetFillColor(21, 150, 90)
 	pdf.Rect(0, 0, 210, 20, "F")
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Arial", "B", 14)
-	pdf.Text(15, 13, "Bagian II — Verification & Attestation")
+	pdf.Text(15, 13, "Bagian II - Verification & Attestation")
 
 	pdf.SetTextColor(40, 40, 40)
 	pdf.SetFont("Arial", "B", 11)
@@ -615,7 +615,7 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 		{"Estimasi Carbon Credit IDX", fmt.Sprintf("Rp %s (@ Rp 30.000/ton)", formatIDR(summary.CarbonCreditIDR))},
 		{"Estimasi Voluntary Market", fmt.Sprintf("USD %.2f (@ USD 5/ton)", summary.CarbonCreditUSD)},
 		{"Standar Metodologi", summary.Standard},
-		{"Periode Laporan", fmt.Sprintf("%s — %s", summary.PeriodStart.Format("02 Jan 2006"), summary.PeriodEnd.Format("02 Jan 2006"))},
+		{"Periode Laporan", fmt.Sprintf("%s - %s", summary.PeriodStart.Format("02 Jan 2006"), summary.PeriodEnd.Format("02 Jan 2006"))},
 	}
 	for i, row := range summRows {
 		if i%2 == 0 {
@@ -649,7 +649,7 @@ func generateMRVReport(summary *CO2Summary, userObj *user.User, writer io.Writer
 	pdf.SetY(275)
 	pdf.SetTextColor(150, 150, 150)
 	pdf.SetFont("Arial", "I", 8)
-	pdf.Text(15, 279, "Solar Forecast Platform  •  MRV CO2 Avoided Report  •  Dokumen ini dapat digunakan sebagai lampiran laporan ESG / CSR perusahaan.")
+	pdf.Text(15, 279, "Solar Forecast Platform  *  MRV CO2 Avoided Report  *  Dokumen ini dapat digunakan sebagai lampiran laporan ESG / CSR perusahaan.")
 
 	return pdf.Output(writer)
 }
@@ -700,7 +700,7 @@ func generateESGReport(summary *ESGSummary, userObj *user.User, year int, writer
 	
 	pdf.SetY(140)
 	pdf.SetFont("Arial", "", 14)
-	pdf.CellFormat(210, 10, fmt.Sprintf("Annual Dashboard Summary — %d", year), "0", 1, "C", false, 0, "")
+	pdf.CellFormat(210, 10, fmt.Sprintf("Annual Dashboard Summary - %d", year), "0", 1, "C", false, 0, "")
 
 	// 2. Executive Summary Page
 	pdf.AddPage()
@@ -848,7 +848,7 @@ func generateRECSummaryPage(pdf *gofpdf.Fpdf, report *RECReadinessReport, userOb
 	pdf.SetFont("Arial", "B", 26)
 	pdf.Text(15, 25, "REC Readiness Report")
 	pdf.SetFont("Arial", "", 12)
-	pdf.Text(15, 38, "Solar Forecast Platform — Evidence for Renewable Energy Certificates")
+	pdf.Text(15, 38, "Solar Forecast Platform - Evidence for Renewable Energy Certificates")
 
 	pdf.SetY(65)
 	pdf.SetTextColor(50, 50, 50)
