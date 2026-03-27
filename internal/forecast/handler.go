@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
-	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
+	"github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -119,7 +119,7 @@ func (h *Handler) GetForecastHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 	forecasts, err := h.service.GetForecastHistory(userID, planTier, days, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -164,7 +164,7 @@ func (h *Handler) GetActualHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 	actuals, err := h.service.GetActualHistory(userID, planTier, days, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -197,7 +197,7 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 	summary, err := h.service.GetDashboardSummary(userID, planTier)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

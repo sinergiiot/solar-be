@@ -65,6 +65,7 @@ func (s *service) CreateUser(req CreateUserRequest) (*User, error) {
 		CompanyLogoURL:     "",
 		CompanyName:        "",
 		CreatedAt:          time.Now().UTC(),
+		UpdatedAt:          time.Now().UTC(),
 	}
 
 	if err := s.repo.CreateUser(u); err != nil {

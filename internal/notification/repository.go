@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/google/uuid"
 )
 
@@ -16,6 +17,7 @@ type Repository interface {
 	UpsertPreference(pref *NotificationPreference) error
 	MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error
 	GetPlanTier(userID uuid.UUID) (string, error)
+	LogNotification(userID uuid.UUID, channel, status, errMsg string) error
 }
 
 type repository struct {
@@ -44,6 +46,7 @@ func (r *repository) GetPreference(userID uuid.UUID) (*NotificationPreference, e
 			to_char(preferred_send_time, 'HH24:MI:SS'),
 			last_daily_forecast_sent_at,
 			last_daily_forecast_sent_for_date,
+			plan_expires_at,
 			created_at,
 			updated_at
 		FROM notification_preferences
@@ -67,6 +70,7 @@ func (r *repository) GetPreference(userID uuid.UUID) (*NotificationPreference, e
 		&pref.PreferredSendTime,
 		&lastSentAt,
 		&lastSentForDate,
+		&pref.PlanExpiresAt,
 		&pref.CreatedAt,
 		&pref.UpdatedAt,
 	); err != nil {
@@ -103,6 +107,7 @@ func (r *repository) GetAllPreferences() ([]*NotificationPreference, error) {
 			to_char(preferred_send_time, 'HH24:MI:SS'),
 			last_daily_forecast_sent_at,
 			last_daily_forecast_sent_for_date,
+			plan_expires_at,
 			created_at,
 			updated_at
 		FROM notification_preferences
@@ -134,6 +139,7 @@ func (r *repository) GetAllPreferences() ([]*NotificationPreference, error) {
 			&pref.PreferredSendTime,
 			&lastSentAt,
 			&lastSentForDate,
+			&pref.PlanExpiresAt,
 			&pref.CreatedAt,
 			&pref.UpdatedAt,
 		); err != nil {
@@ -171,9 +177,10 @@ func (r *repository) UpsertPreference(pref *NotificationPreference) error {
 			whatsapp_phone_e164,
 			whatsapp_opted_in,
 			timezone,
-			preferred_send_time
+			preferred_send_time,
+			plan_expires_at
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11::time
+			$1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), $9, $10, $11::time, $12
 		)
 		ON CONFLICT (user_id) DO UPDATE SET
 			plan_tier = EXCLUDED.plan_tier,
@@ -186,6 +193,7 @@ func (r *repository) UpsertPreference(pref *NotificationPreference) error {
 			whatsapp_opted_in = EXCLUDED.whatsapp_opted_in,
 			timezone = EXCLUDED.timezone,
 			preferred_send_time = EXCLUDED.preferred_send_time,
+			plan_expires_at = EXCLUDED.plan_expires_at,
 			updated_at = NOW()
 	`
 
@@ -202,6 +210,7 @@ func (r *repository) UpsertPreference(pref *NotificationPreference) error {
 		pref.WhatsAppOptedIn,
 		strings.TrimSpace(pref.Timezone),
 		strings.TrimSpace(pref.PreferredSendTime),
+		pref.PlanExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert notification preference: %w", err)
@@ -235,13 +244,23 @@ func normalizeDateOnly(value time.Time) time.Time {
 // GetPlanTier returns only the plan_tier string for a user, defaulting to 'free' if no record exists.
 func (r *repository) GetPlanTier(userID uuid.UUID) (string, error) {
 	query := `SELECT plan_tier FROM notification_preferences WHERE user_id = $1`
-	var tier string
-	err := r.db.QueryRow(query, userID).Scan(&tier)
+	var planTier string
+	err := r.db.QueryRow(query, userID).Scan(&planTier)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return PlanFree, nil
+			return tier.Free, nil
 		}
-		return PlanFree, fmt.Errorf("get plan tier: %w", err)
+		return tier.Free, fmt.Errorf("get plan tier: %w", err)
 	}
-	return tier, nil
+	return planTier, nil
+}
+
+func (r *repository) LogNotification(userID uuid.UUID, channel, status, errMsg string) error {
+	query := `INSERT INTO notification_logs (user_id, channel, status, error_message) VALUES ($1, $2, $3, $4)`
+	var errVal sql.NullString
+	if errMsg != "" {
+		errVal = sql.NullString{String: errMsg, Valid: true}
+	}
+	_, err := r.db.Exec(query, userID, channel, status, errVal)
+	return err
 }

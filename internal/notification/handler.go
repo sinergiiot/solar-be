@@ -20,6 +20,9 @@ func NewHandler(service Service) *Handler {
 
 // RegisterRoutes wires notification preference routes.
 func (h *Handler) RegisterRoutes(r chi.Router) {
+	// Everyone can see/update basic email prefs, but advanced channels are gated by plan.
+	// However, we gate the whole endpoint for now to simplify logic, or we could handle it inside service.
+	// Looking at report/handler, they gate specific GETs.
 	r.Get("/notifications/preferences", h.GetPreference)
 	r.Put("/notifications/preferences", h.UpsertPreference)
 }

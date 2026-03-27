@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
-	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
+	"github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/go-chi/chi/v5"
 )
@@ -24,16 +24,16 @@ func NewHandler(service Service, userSvc user.Service) *Handler {
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	// Gated for Pro/Enterprise users
-	r.With(tier.RequireFeature("green_report")).Get("/report/energy", h.GetEnergyReport)
-	r.With(tier.RequireFeature("green_report")).Get("/report/energy/pdf", h.DownloadEnergyReportPDF)
-	r.With(tier.RequireFeature("green_report")).Get("/report/rec", h.GetRECReadinessReport)
-	r.With(tier.RequireFeature("green_report")).Get("/report/rec/pdf", h.DownloadRECPDF)
-	r.With(tier.RequireFeature("enterprise")).Get("/report/esg", h.GetESGSummary)
-	r.With(tier.RequireFeature("enterprise")).Get("/report/esg/pdf", h.DownloadESGReportPDF)
-	r.With(tier.RequireFeature("green_report")).Get("/report/history/csv", h.DownloadHistoryCSV)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/energy", h.GetEnergyReport)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/energy/pdf", h.DownloadEnergyReportPDF)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/rec", h.GetRECReadinessReport)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/rec/pdf", h.DownloadRECPDF)
+	r.With(middleware.RequireFeature("enterprise")).Get("/report/esg", h.GetESGSummary)
+	r.With(middleware.RequireFeature("enterprise")).Get("/report/esg/pdf", h.DownloadESGReportPDF)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/history/csv", h.DownloadHistoryCSV)
 	// Epic 4: CO2 Tracker
-	r.With(tier.RequireFeature("green_report")).Get("/report/co2", h.GetCO2Summary)
-	r.With(tier.RequireFeature("green_report")).Get("/report/co2/pdf", h.DownloadMRVPDF)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/co2", h.GetCO2Summary)
+	r.With(middleware.RequireFeature("green_report")).Get("/report/co2/pdf", h.DownloadMRVPDF)
 }
 
 func (h *Handler) RegisterPublicRoutes(r chi.Router) {
@@ -47,7 +47,7 @@ func (h *Handler) GetEnergyReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 
 	isAnnual := r.URL.Query().Get("is_annual") == "true"
 	yearStr := r.URL.Query().Get("year")
@@ -93,7 +93,7 @@ func (h *Handler) DownloadEnergyReportPDF(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 
 	userObj, err := h.userSvc.GetUserByID(userID)
 	if err != nil {
@@ -215,7 +215,7 @@ func (h *Handler) GetESGSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 	yearStr := r.URL.Query().Get("year")
 	year := 0
 	if yearStr != "" {
@@ -314,7 +314,7 @@ func (h *Handler) GetCO2Summary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 
 	isAnnual := r.URL.Query().Get("is_annual") == "true"
 	yearStr := r.URL.Query().Get("year")
@@ -357,7 +357,7 @@ func (h *Handler) DownloadMRVPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planTier := tier.GetTierFromContext(r.Context())
+	planTier := middleware.GetTierFromContext(r.Context())
 
 	userObj, err := h.userSvc.GetUserByID(userID)
 	if err != nil {

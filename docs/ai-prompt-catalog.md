@@ -1,5 +1,4 @@
 # AI Agent Prompt Catalog v2 — Solar Forecast Green Compliance + Freemium
-
 **Untuk:** GitHub Copilot, Claude, Gemini, ChatGPT, Antigravity  
 **Stack:** Go + Chi + PostgreSQL + React + Vite + Tailwind  
 **Konvensi:** modular monolith, chi router, pgx/v5, JWT auth, UUID sebagai primary key
@@ -353,7 +352,6 @@ Add to existing scheduler (daily job at 00:00 WIB):
 ```
 
 ---
-
 ---
 
 # EPIC 1 — Monthly Energy Report PDF (Pro)
@@ -491,11 +489,9 @@ GET /reports/annual/csv?profile_id=&year=
 ```
 
 ---
-
 ---
 
 # EPIC 2 — Annual Summary & PBB Letter (Pro)
-
 # [Prompts sama seperti v1, tambahkan tier gate dan white-label]
 
 ## Prompt E2-T4&T5 — Annual PDF with Tier Gate & White-label
@@ -526,11 +522,9 @@ Also add endpoint:
 ```
 
 ---
-
 ---
 
 # EPIC 3 — MWh Accumulator & REC Readiness
-
 # [Sama seperti v1, tambahkan tier gate pada PDF]
 
 ## Prompt E3-T4 — REC Notification (Pro/Enterprise only)
@@ -561,11 +555,9 @@ In internal/accumulator/service.go, after UpdateAccumulator:
 ```
 
 ---
-
 ---
 
 # EPIC 4 — CO2 Avoided Tracker & MRV Report
-
 # [Sama seperti v1, tambahkan tier gate]
 
 ## Prompt E4-T5&T6 — MRV PDF with Tier Gate & White-label
@@ -591,7 +583,6 @@ Endpoint:
 ```
 
 ---
-
 ---
 
 # EPIC 5 — ESG Dashboard (Enterprise)
@@ -661,7 +652,6 @@ Add route /esg → <ESGDashboard /> with "ESG" in sidebar (always visible, but l
 ```
 
 ---
-
 ---
 
 # SHARED — Pricing Page
@@ -713,4 +703,463 @@ Layout:
 
 Add "Lihat Paket" link in Sidebar for Free users.
 Add "Upgrade" badge/button in Sidebar next to tier badge for Free/Pro users.
+```
+
+---
+---
+
+# EPIC 6 — Admin Dashboard
+
+---
+
+## Prompt E6-T1 — Admin Auth Middleware
+
+```
+Context:
+Go backend, Chi router, JWT auth already exists.
+Current JWT payload contains: user_id, email.
+We need to add admin role support.
+
+Task:
+1. Add `is_admin` boolean field to users table:
+   ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+
+2. Add `is_admin` claim to JWT payload when generating tokens.
+   In internal/auth/service.go, include is_admin in claims:
+     claims["is_admin"] = user.IsAdmin
+
+3. Create internal/middleware/admin.go:
+
+   // RequireAdmin middleware — blocks non-admin users with 403
+   func RequireAdmin(next http.Handler) http.Handler {
+     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+       claims := GetClaimsFromContext(r.Context())
+       isAdmin, _ := claims["is_admin"].(bool)
+       if !isAdmin {
+         http.Error(w, `{"error":"forbidden","message":"Admin access required"}`,
+           http.StatusForbidden)
+         return
+       }
+       next.ServeHTTP(w, r)
+     })
+   }
+
+4. Register admin routes in main router under /admin prefix:
+   r.Route("/admin", func(r chi.Router) {
+     r.Use(middleware.AuthMiddleware)   // JWT required
+     r.Use(middleware.RequireAdmin)     // admin role required
+     // admin handlers registered here
+   })
+
+5. Set first admin via SQL (manual, one-time):
+   UPDATE users SET is_admin = TRUE WHERE email = 'your@email.com';
+
+Do not change existing auth middleware or user-facing routes.
+```
+
+---
+
+## Prompt E6-T2&T3 — User Management API
+
+```
+Context:
+Go backend, Chi router, pgx/v5.
+Admin auth middleware exists (RequireAdmin).
+Tables: users, subscriptions, solar_profiles, devices.
+Tier values: 'free' | 'pro' | 'enterprise'.
+
+Task:
+Create internal/admin/users_handler.go and internal/admin/users_service.go
+
+Endpoint 1 — List users:
+  GET /admin/users
+  Query params:
+    tier     string  (optional: free|pro|enterprise)
+    status   string  (optional: active|expired|grace|free)
+    search   string  (optional: email or name)
+    page     int     (default: 1)
+    per_page int     (default: 50)
+
+  Response JSON:
+  {
+    "users": [
+      {
+        "id":              "uuid",
+        "email":           "string",
+        "name":            "string",
+        "plan_tier":       "free|pro|enterprise",
+        "is_admin":        bool,
+        "profile_count":   int,
+        "device_count":    int,
+        "subscription": {
+          "status":        "active|expired|grace|none",
+          "tier":          "string",
+          "end_date":      "YYYY-MM-DD",
+          "days_left":     int
+        },
+        "last_forecast_at": "ISO8601 or null",
+        "created_at":     "ISO8601"
+      }
+    ],
+    "total": int,
+    "page":  int,
+    "per_page": int
+  }
+
+Endpoint 2 — Manual tier upgrade/downgrade:
+  PATCH /admin/users/:id/tier
+  Request: { "tier": "free|pro|enterprise", "reason": "string" }
+  Logic:
+    1. Update users SET plan_tier = $tier WHERE id = $id
+    2. If upgrading to pro/enterprise: create or extend subscription
+       end_date = today + 30 days (monthly) — admin manual override
+    3. If downgrading to free: set subscription status = 'cancelled'
+    4. Insert into audit_log: admin_id, action='tier_change', target_user_id,
+       old_tier, new_tier, reason, timestamp
+  Response: updated user object
+
+Endpoint 3 — Extend subscription:
+  PATCH /admin/users/:id/subscription/extend
+  Request: { "days": int }
+  Logic: UPDATE subscriptions SET end_date = end_date + $days WHERE user_id = $id
+```
+
+---
+
+## Prompt E6-T4 — Impersonate User
+
+```
+Context:
+Go backend, Chi router, JWT auth.
+Admin can generate a temporary token to login as any user for debugging.
+
+Task:
+Create endpoint:
+  POST /admin/users/:id/impersonate
+
+Logic:
+  1. Verify requester is admin (RequireAdmin middleware)
+  2. Fetch target user by id
+  3. Generate a short-lived JWT (15 minutes) with target user's claims
+     + extra claim: "impersonated_by": admin_user_id
+  4. Insert into audit_log: action='impersonate', admin_id, target_user_id, timestamp
+  5. Return:
+     { "token": "jwt_string", "expires_in": 900, "user": { id, email, plan_tier } }
+
+Security notes:
+  - Impersonate token expires in 15 minutes max (hardcode, not configurable)
+  - Impersonate token cannot impersonate another admin (check target is_admin=false)
+  - All actions done with impersonate token are logged with impersonated_by field
+  - Add warning header to all responses when impersonate token is used:
+    X-Impersonated-By: [admin_email]
+```
+
+---
+
+## Prompt E6-T6 — Scheduler Status API
+
+```
+Context:
+Go backend. Existing scheduler runs daily at 06:00 WIB.
+We need to expose scheduler run history to admin.
+
+Task:
+1. Create table: scheduler_runs
+   CREATE TABLE scheduler_runs (
+     id           BIGSERIAL PRIMARY KEY,
+     run_date     DATE NOT NULL,
+     started_at   TIMESTAMPTZ NOT NULL,
+     finished_at  TIMESTAMPTZ,
+     total_sites  INT NOT NULL DEFAULT 0,
+     success      INT NOT NULL DEFAULT 0,
+     failed       INT NOT NULL DEFAULT 0,
+     status       VARCHAR(20) NOT NULL DEFAULT 'running',
+     -- status: 'running' | 'completed' | 'partial' | 'failed'
+     UNIQUE(run_date)
+   );
+
+   CREATE TABLE scheduler_run_errors (
+     id              BIGSERIAL PRIMARY KEY,
+     run_id          BIGINT REFERENCES scheduler_runs(id),
+     solar_profile_id UUID,
+     user_id         UUID,
+     error_message   TEXT,
+     created_at      TIMESTAMPTZ DEFAULT NOW()
+   );
+
+2. Instrument existing scheduler to log into these tables:
+   - INSERT scheduler_runs at start of daily run
+   - UPDATE after each site: increment success or failed
+   - INSERT scheduler_run_errors for each failed site
+   - UPDATE status and finished_at when done
+
+3. Create API:
+   GET /admin/scheduler/status
+   Response:
+   {
+     "today": {
+       "run_date":    "YYYY-MM-DD",
+       "status":      "completed|running|partial|failed|not_run",
+       "started_at":  "ISO8601",
+       "finished_at": "ISO8601",
+       "total_sites": int,
+       "success":     int,
+       "failed":      int,
+       "errors": [
+         { "profile_id": "uuid", "user_id": "uuid", "error": "string" }
+       ]
+     },
+     "history": [  // last 7 days
+       { "run_date", "status", "success", "failed", "total_sites" }
+     ]
+   }
+```
+
+---
+
+## Prompt E6-T10&T11 — Forecast Quality & Cold Start Monitor API
+
+```
+Context:
+Go backend, pgx/v5.
+Tables: forecasts (predicted_kwh, actual_kwh, date, solar_profile_id, baseline_type),
+        solar_profiles (id, name, user_id, capacity_kwp).
+
+Task:
+Create internal/admin/quality_handler.go
+
+Endpoint 1 — Forecast Quality per site:
+  GET /admin/forecast-quality?days=7
+
+  For each active site (has forecast in last 30 days):
+    MAPE = avg(|actual - predicted| / actual * 100) for last N days
+    Only include days where actual_kwh > 0
+
+  Response:
+  {
+    "sites": [
+      {
+        "profile_id":    "uuid",
+        "profile_name":  "string",
+        "user_email":    "string",
+        "capacity_kwp":  float64,
+        "baseline_type": "synthetic|blended|site",
+        "efficiency":    float64,
+        "mape_7d":       float64,
+        "mape_flag":     "good|warning|critical",
+        // good: mape < 15%, warning: 15-30%, critical: > 30%
+        "actual_days_count":  int,   // total days with actual
+        "last_actual_date":   "YYYY-MM-DD or null",
+        "days_since_actual":  int
+      }
+    ],
+    "summary": {
+      "total_sites":    int,
+      "avg_mape":       float64,
+      "critical_count": int,
+      "warning_count":  int,
+      "good_count":     int
+    }
+  }
+
+Endpoint 2 — Cold Start Monitor:
+  GET /admin/cold-start-monitor?min_days=30
+
+  Return sites where:
+    baseline_type = 'synthetic' AND first forecast > min_days ago
+    (these users have never submitted actual data)
+
+  Response:
+  {
+    "sites": [
+      {
+        "profile_id":       "uuid",
+        "profile_name":     "string",
+        "user_email":       "string",
+        "plan_tier":        "string",
+        "first_forecast":   "YYYY-MM-DD",
+        "days_since_start": int,
+        "forecast_count":   int,
+        "actual_count":     0
+      }
+    ],
+    "total": int
+  }
+```
+
+---
+
+## Prompt E6-T13 — Data Anomaly Detector API
+
+```
+Context:
+Go backend, pgx/v5.
+Tables: forecasts (predicted_kwh, actual_kwh, date, solar_profile_id).
+
+Task:
+Create endpoint: GET /admin/data-anomalies
+
+Detect three types of anomalies:
+
+TYPE 1 — actual_kwh suspiciously high:
+  actual_kwh > predicted_kwh * 1.5
+  Possible cause: wrong manual input (e.g. user entered Wh instead of kWh)
+
+TYPE 2 — actual_kwh = 0 or near-zero for many consecutive days:
+  actual_kwh < 0.01 for 7+ consecutive days
+  Possible cause: sensor offline, user stopped inputting
+
+TYPE 3 — Coverage too low:
+  Days with actual_kwh > 0 / total forecast days < 50% in last 30 days
+  Possible cause: user not engaged, IoT device disconnected
+
+Response:
+{
+  "anomalies": [
+    {
+      "type":         "high_actual|zero_streak|low_coverage",
+      "profile_id":   "uuid",
+      "profile_name": "string",
+      "user_email":   "string",
+      "plan_tier":    "string",
+      "detail": {
+        // for high_actual:
+        "date":          "YYYY-MM-DD",
+        "predicted_kwh": float64,
+        "actual_kwh":    float64,
+        "ratio":         float64,
+        // for zero_streak:
+        "streak_days":   int,
+        "streak_from":   "YYYY-MM-DD",
+        // for low_coverage:
+        "coverage_pct":  float64,
+        "actual_days":   int,
+        "total_days":    int
+      }
+    }
+  ],
+  "total": int,
+  "generated_at": "ISO8601"
+}
+```
+
+---
+
+## Prompt E6-T7 — Frontend Admin User Management Page
+
+```
+Context:
+React + Tailwind + TanStack Query.
+Admin routes under /admin — only accessible with is_admin=true JWT claim.
+Add admin check in router: if (!user.is_admin) redirect to /dashboard.
+
+Task:
+Create src/pages/admin/UserManagement.tsx
+
+Layout:
+  1. Page header: "User Management" + badge "Admin"
+  2. Filter bar:
+     - Search input (email or name)
+     - Dropdown filter: Tier (All / Free / Pro / Enterprise)
+     - Dropdown filter: Status (All / Active / Expired / Grace)
+  3. Stats row (4 cards):
+     - Total Users | Free | Pro | Enterprise
+  4. User table:
+     Columns:
+       Email | Name | Tier badge | Subscription status | Sites | Devices |
+       Last forecast | Actions
+     Tier badge colors:
+       Free = gray | Pro = amber | Enterprise = blue
+     Subscription status badge:
+       active = green | expired = red | grace = orange | none = gray
+     Actions column (dropdown per row):
+       - "Upgrade ke Pro"
+       - "Upgrade ke Enterprise"
+       - "Downgrade ke Free"
+       - "Extend 30 hari"
+       - "Login sebagai user" (impersonate)
+  5. Upgrade/Downgrade modal:
+     - Confirm dialog: "Ubah tier [email] dari [old] ke [new]?"
+     - Input: Reason (text, optional)
+     - Button: Konfirmasi
+  6. Pagination (50 per page)
+
+API calls:
+  GET /admin/users?tier=&status=&search=&page=
+  PATCH /admin/users/:id/tier
+  POST /admin/users/:id/impersonate → store token in sessionStorage, redirect to /dashboard
+
+Add /admin route group in src/router.tsx with AdminGuard wrapper.
+Add "Admin" link in sidebar — only visible if user.is_admin === true.
+```
+
+---
+
+## Prompt E6-T8 — Frontend Scheduler Monitor
+
+```
+Context:
+React + Tailwind + TanStack Query.
+API: GET /admin/scheduler/status
+
+Task:
+Create src/pages/admin/SchedulerMonitor.tsx
+
+Layout:
+  1. Header: "Scheduler Monitor" + last updated timestamp + auto-refresh button
+  2. Today's run card (large, full width):
+     Status badge (large):
+       running    = blue pulsing
+       completed  = green
+       partial    = orange (some failed)
+       failed     = red
+       not_run    = gray
+     Stats: [success] / [total_sites] sites berhasil
+     Time: started_at → finished_at (or "sedang berjalan...")
+  3. Error list (if any failed sites):
+     Table: Profile Name | User Email | Error Message
+     Collapsible if > 5 errors
+  4. History table (last 7 days):
+     Date | Status badge | Success | Failed | Total | Duration
+  5. Auto-refresh every 30 seconds when status = 'running'
+
+Note: if status = 'not_run' and time > 07:00 WIB, show warning banner:
+  "⚠️ Scheduler belum berjalan hari ini. Periksa server."
+```
+
+---
+
+## Prompt E6-T14 — Frontend Forecast Quality Dashboard
+
+```
+Context:
+React + Tailwind + TanStack Query + Recharts.
+APIs:
+  GET /admin/forecast-quality?days=7
+  GET /admin/cold-start-monitor?min_days=30
+
+Task:
+Create src/pages/admin/ForecastQuality.tsx
+
+Layout:
+  SECTION 1 — Forecast Quality
+  1. Header: "Forecast Quality Monitor"
+  2. Summary cards (3):
+     ✅ Good (MAPE < 15%) | ⚠️ Warning (15–30%) | ❌ Critical (> 30%)
+  3. Filter: Days selector (7 / 14 / 30)
+  4. Quality table:
+     Profile | User | Capacity | Tier | Baseline Type | MAPE | Flag | Efficiency | Last Actual | Days Since
+     Flag column: color-coded badge (good=green / warning=yellow / critical=red)
+     Sort by MAPE descending (worst first)
+     Click row → expand: show last 7 days predicted vs actual inline chart
+
+  SECTION 2 — Cold Start Monitor
+  5. Header: "Cold Start Monitor"
+     Subtitle: "Site yang sudah > 30 hari tapi belum pernah input actual"
+  6. Table:
+     Profile | User | Tier | First Forecast | Days Active | Forecasts Count | Actual Count
+     Action: "Kirim Reminder" (opens email draft modal)
+  7. Export button: download CSV list untuk outreach manual
+
+Both sections on same page, separated by divider.
 ```

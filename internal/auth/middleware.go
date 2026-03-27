@@ -83,3 +83,14 @@ func UserRoleFromContext(ctx context.Context) string {
 	role, _ := ctx.Value(ctxkeys.UserRole).(string)
 	return role
 }
+// RequireAdmin ensures only users with role 'admin' can access certain routes.
+func RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := UserRoleFromContext(r.Context())
+		if role != "admin" {
+			WriteJSON(w, http.StatusForbidden, map[string]string{"error": "admin access required"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

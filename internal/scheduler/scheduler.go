@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"github.com/akbarsenawijaya/solar-forecast/internal/forecast"
 	"github.com/akbarsenawijaya/solar-forecast/internal/notification"
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
@@ -21,6 +23,7 @@ import (
 // Scheduler runs periodic jobs for the application.
 type Scheduler struct {
 	cron            *cron.Cron
+	db              *sql.DB
 	userService     user.Service
 	solarService    solar.Service
 	forecastService forecast.Service
@@ -30,6 +33,7 @@ type Scheduler struct {
 
 // New creates a new scheduler with all required service dependencies.
 func New(
+	db *sql.DB,
 	userSvc user.Service,
 	solarSvc solar.Service,
 	forecastSvc forecast.Service,
@@ -38,6 +42,7 @@ func New(
 ) *Scheduler {
 	return &Scheduler{
 		cron:            cron.New(cron.WithSeconds()),
+		db:              db,
 		userService:     userSvc,
 		solarService:    solarSvc,
 		forecastService: forecastSvc,
@@ -48,17 +53,23 @@ func New(
 
 // Start registers all cron jobs and starts the scheduler.
 func (s *Scheduler) Start() {
-	_, err := s.cron.AddFunc("0 */5 * * * *", s.runScheduledForecastChecks)
+	_, err := s.cron.AddFunc("0 */5 * * * *", func() {
+		s.logRun("Daily Forecast Delivery", s.runScheduledForecastChecks)
+	})
 	if err != nil {
 		log.Printf("failed to register daily forecast cron: %v", err)
 	}
 
-	_, err = s.cron.AddFunc("0 0 * * * *", s.runSubscriptionCleanup)
+	_, err = s.cron.AddFunc("0 0 * * * *", func() {
+		s.logRun("Subscription Cleanup", s.runSubscriptionCleanup)
+	})
 	if err != nil {
 		log.Printf("failed to register subscription cleanup cron: %v", err)
 	}
 
-	_, err = s.cron.AddFunc("0 1 * * * *", s.runSubscriptionExpiryNotice)
+	_, err = s.cron.AddFunc("0 1 * * * *", func() {
+		s.logRun("Subscription Expiry Notice", s.runSubscriptionExpiryNotice)
+	})
 	if err != nil {
 		log.Printf("failed to register subscription expiry notice cron: %v", err)
 	}
@@ -71,6 +82,38 @@ func (s *Scheduler) Start() {
 func (s *Scheduler) Stop() {
 	s.cron.Stop()
 	log.Println("Scheduler stopped")
+}
+
+func (s *Scheduler) logRun(jobName string, fn func()) {
+	startedAt := time.Now()
+	
+	// Use a recover to catch panics within the job
+	var errStr string
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errStr = fmt.Sprintf("panic: %v", r)
+				log.Printf("CRITICAL: job %s panicked: %v", jobName, r)
+			}
+		}()
+		fn()
+	}()
+
+	finishedAt := time.Now()
+	duration := finishedAt.Sub(startedAt)
+	status := "success"
+	if errStr != "" {
+		status = "failed"
+	}
+
+	query := `
+		INSERT INTO scheduler_runs (job_name, status, duration_ms, error_message, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`
+	_, err := s.db.Exec(query, jobName, status, duration.Milliseconds(), sql.NullString{String: errStr, Valid: errStr != ""}, startedAt, finishedAt)
+	if err != nil {
+		log.Printf("failed to log scheduler run for %s: %v", jobName, err)
+	}
 }
 
 // runScheduledForecastChecks checks every verified user and only sends for those due in the current 5-minute window.
@@ -196,7 +239,7 @@ func (s *Scheduler) processUserForecast(userID uuid.UUID, name, email string, da
 	var deviationPct *float64
 	referenceLabel := "actual referensi"
 	if result.SolarProfileID != nil {
-		planTier := notification.PlanFree
+		planTier := tier.Free
 		if pref != nil {
 			planTier = pref.PlanTier
 		}

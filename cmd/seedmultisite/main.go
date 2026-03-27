@@ -45,7 +45,7 @@ func main() {
 
 	// Force tier to enterprise in notification_preferences
 	_, _ = db.Exec("INSERT INTO notification_preferences (user_id, plan_tier, email_enabled, created_at, updated_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id) DO UPDATE SET plan_tier = $2",
-		uid, tier.PlanEnterprise, true, time.Now(), time.Now())
+		uid, tier.Enterprise, true, time.Now(), time.Now())
 
 	userRepo := user.NewRepository(db)
 	userSvc := user.NewService(userRepo)
@@ -85,7 +85,7 @@ func main() {
 			CapacityKwp: s.Cap,
 			Lat:         s.Lat,
 			Lng:         s.Lng,
-			PlanTier:    tier.PlanEnterprise,
+			PlanTier:    tier.Enterprise,
 		})
 		if err != nil {
 			fmt.Printf("Skipping %s (already exists or error: %v)\n", s.Name, err)

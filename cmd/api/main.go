@@ -22,7 +22,7 @@ import (
 	"github.com/akbarsenawijaya/solar-forecast/internal/notification"
 	"github.com/akbarsenawijaya/solar-forecast/internal/scheduler"
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
-	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
+	appMiddleware "github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weatherbaseline"
@@ -97,11 +97,11 @@ func main() {
 	)
 	billingSvc := billing.NewService(billingRepo, notifSvc, userSvc, cfg.Midtrans.ServerKey, cfg.Midtrans.IsProduction, cfg.Midtrans.AppBaseURL)
 	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc)
-	adminSvc := admin.NewService(db, userSvc)
+	adminSvc := admin.NewService(db, userSvc, cfg.Auth.JWTSecret, cfg.Auth.TokenExpiryHrs)
 	apiKeySvc := apikey.NewService(apiKeyRepo, userSvc)
 
 	// Start the daily forecast scheduler
-	sched := scheduler.New(userSvc, solarSvc, forecastSvc, notifSvc, billingSvc)
+	sched := scheduler.New(db, userSvc, solarSvc, forecastSvc, notifSvc, billingSvc)
 	sched.Start()
 	defer sched.Stop()
 
@@ -127,7 +127,7 @@ func main() {
 			ValidateFn: apiKeySvc.ValidateKey,
 		}
 		protected.Use(auth.Middleware(authSvc, apiKeyValidator))
-		protected.Use(tier.TierMiddleware(notifRepo, auth.UserIDFromContext))
+		protected.Use(appMiddleware.TierMiddleware(notifRepo, auth.UserIDFromContext))
 
 		authHandler.RegisterProtectedRoutes(protected)
 		solar.NewHandler(solarSvc).RegisterRoutes(protected)
@@ -136,10 +136,15 @@ func main() {
 		notifHandler.RegisterRoutes(protected)
 		billingHandler.RegisterProtectedRoutes(protected)
 		reportHandler.RegisterRoutes(protected)
-		adminHandler.RegisterRoutes(protected)
 		apikey.NewHandler(apiKeySvc).RegisterRoutes(protected)
 		user.NewHandler(userSvc).RegisterRoutes(protected)
 		rec.NewHandler(recSvc).RegisterRoutes(protected)
+
+		// Admin-only routes
+		protected.Group(func(admin chi.Router) {
+			admin.Use(auth.RequireAdmin)
+			adminHandler.RegisterRoutes(admin)
+		})
 	})
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

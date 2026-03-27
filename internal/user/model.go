@@ -22,6 +22,7 @@ type User struct {
 	ESGShareToken   string `json:"esg_share_token,omitempty"`
 	ESGShareEnabled bool   `json:"esg_share_enabled"`
 	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // CreateUserRequest holds data needed to register a new user

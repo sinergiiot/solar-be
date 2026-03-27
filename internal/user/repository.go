@@ -44,7 +44,7 @@ func scanUser(s interface {
 		&u.PasswordHash, &u.ForecastEfficiency,
 		&u.CompanyLogoURL, &u.CompanyName,
 		&shareToken, &u.ESGShareEnabled,
-		&u.CreatedAt,
+		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -55,15 +55,15 @@ func scanUser(s interface {
 
 const selectUserCols = `id, name, email, role, email_verified, email_verified_at,
   password_hash, forecast_efficiency, company_logo_url, company_name,
-  esg_share_token, esg_share_enabled, created_at`
+  esg_share_token, esg_share_enabled, created_at, updated_at`
 
 // CreateUser inserts a new user into the database
 func (r *repository) CreateUser(u *User) error {
 	query := `
-		INSERT INTO users (id, name, email, role, email_verified, email_verified_at, password_hash, forecast_efficiency, company_logo_url, company_name, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO users (id, name, email, role, email_verified, email_verified_at, password_hash, forecast_efficiency, company_logo_url, company_name, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
-	_, err := r.db.Exec(query, u.ID, u.Name, u.Email, u.Role, u.EmailVerified, u.EmailVerifiedAt, u.PasswordHash, u.ForecastEfficiency, u.CompanyLogoURL, u.CompanyName, u.CreatedAt)
+	_, err := r.db.Exec(query, u.ID, u.Name, u.Email, u.Role, u.EmailVerified, u.EmailVerifiedAt, u.PasswordHash, u.ForecastEfficiency, u.CompanyLogoURL, u.CompanyName, u.CreatedAt, u.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}

@@ -7,15 +7,6 @@ import (
 )
 
 const (
-	// PlanFree routes notifications through free channels only.
-	PlanFree = "free"
-	// PlanPro is the standard paid tier.
-	PlanPro = "pro"
-	// PlanEnterprise is the highest tier with all features.
-	PlanEnterprise = "enterprise"
-	// PlanPaid allows WhatsApp as premium channel (deprecated, use PlanPro).
-	PlanPaid = "paid"
-
 	// ChannelEmail routes to SMTP email delivery.
 	ChannelEmail = "email"
 	// ChannelTelegram routes to Telegram bot delivery.

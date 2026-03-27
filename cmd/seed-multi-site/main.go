@@ -51,7 +51,7 @@ func main() {
 		INSERT INTO notification_preferences (user_id, plan_tier, primary_channel, email_enabled, timezone, preferred_send_time)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id) DO UPDATE SET plan_tier = $2`,
-		uid, tier.PlanEnterprise, "email", true, "UTC", "07:00:00")
+		uid, tier.Enterprise, "email", true, "UTC", "07:00:00")
 	if err != nil {
 		log.Fatalf("failed to set plan tier: %v", err)
 	}
@@ -84,7 +84,7 @@ func main() {
 			CapacityKwp: s.cap,
 			Lat:         s.lat,
 			Lng:         s.lng,
-			PlanTier:    tier.PlanEnterprise,
+			PlanTier:    tier.Enterprise,
 		})
 		if err != nil {
 			log.Fatalf("failed to create site %s: %v", s.name, err)

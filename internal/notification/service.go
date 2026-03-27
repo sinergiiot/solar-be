@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akbarsenawijaya/solar-forecast/internal/tier"
 	"github.com/google/uuid"
 
 	"gopkg.in/gomail.v2"
@@ -23,9 +24,10 @@ type Service interface {
 	DispatchDailyForecast(payload DispatchPayload) error
 	MarkDailyForecastSent(userID uuid.UUID, forecastDate time.Time, sentAt time.Time) error
 	SendRECMilestoneEmail(toEmail string, userName string, mwh float64) error
-	SetPlanTier(userID uuid.UUID, tier string, expiresAt *time.Time) error
-	SendUpgradeConfirmationEmail(toEmail, userName, tier string, expiresAt time.Time) error
-	SendSubscriptionExpiringEmail(toEmail, userName, tier string, expiresAt time.Time) error
+	SetPlanTier(userID uuid.UUID, planTier string, expiresAt *time.Time) error
+	SendUpgradeConfirmationEmail(toEmail, userName, planTier string, expiresAt time.Time) error
+	SendSubscriptionExpiringEmail(toEmail, userName, planTier string, expiresAt time.Time) error
+	LogNotification(userID uuid.UUID, channel, status, errMsg string) error
 }
 
 type service struct {
@@ -149,7 +151,7 @@ func (s *service) UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest
 		pref.EmailEnabled = true
 	}
 
-	if pref.PlanTier == PlanFree {
+	if pref.PlanTier == tier.Free {
 		pref.WhatsAppEnabled = false
 		if pref.PrimaryChannel == ChannelWhatsApp {
 			pref.PrimaryChannel = ChannelEmail
@@ -164,30 +166,27 @@ func (s *service) UpsertPreference(userID uuid.UUID, req UpsertPreferenceRequest
 }
 
 // SetPlanTier updates the plan tier for a user. This is intended to be called by the billing service.
-func (s *service) SetPlanTier(userID uuid.UUID, tier string, expiresAt *time.Time) error {
-	tier = strings.TrimSpace(strings.ToLower(tier))
-	if tier == "" {
-		tier = PlanFree
+func (s *service) SetPlanTier(userID uuid.UUID, planTier string, expiresAt *time.Time) error {
+	planTier = strings.TrimSpace(strings.ToLower(planTier))
+	if planTier == "" {
+		planTier = tier.Free
 	}
-	if tier != PlanFree && tier != PlanPro && tier != PlanEnterprise && tier != PlanPaid {
-		return fmt.Errorf("invalid plan tier: %s", tier)
-	}
-	if tier == PlanPaid {
-		tier = PlanPro
+	if planTier != tier.Free && planTier != tier.Pro && planTier != tier.Enterprise {
+		return fmt.Errorf("invalid plan tier: %s", planTier)
 	}
 
 	pref, err := s.GetPreference(userID)
 	if err != nil {
 		return err
 	}
-	pref.PlanTier = tier
+	pref.PlanTier = planTier
 	pref.PlanExpiresAt = expiresAt
 	pref.UpdatedAt = time.Now()
 	return s.repo.UpsertPreference(pref)
 }
 
-func (s *service) SendUpgradeConfirmationEmail(toEmail, userName, tier string, expiresAt time.Time) error {
-	subject := fmt.Sprintf("Pembayaran Berhasil: Upgrade Paket %s Aktif!", strings.Title(tier))
+func (s *service) SendUpgradeConfirmationEmail(toEmail, userName, planTier string, expiresAt time.Time) error {
+	subject := fmt.Sprintf("Pembayaran Berhasil: Upgrade Paket %s Aktif!", strings.Title(planTier))
 
 	localExpiry := expiresAt.Format("02 January 2006")
 	body := buildBaseEmailTemplate(fmt.Sprintf(`
@@ -215,13 +214,13 @@ func (s *service) SendUpgradeConfirmationEmail(toEmail, userName, tier string, e
 		<div style="text-align: center; margin-top: 32px;">
 			<a href="http://localhost:5173/dashboard" style="background: #10b981; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Masuk ke Dashboard</a>
 		</div>
-	`, strings.Title(tier), localExpiry, userName))
+	`, strings.Title(planTier), localExpiry, userName))
 
 	return s.sendEmail(toEmail, subject, body)
 }
 
 // SendSubscriptionExpiringEmail sends a reminder 7 days before subscription expires.
-func (s *service) SendSubscriptionExpiringEmail(toEmail, userName, tier string, expiresAt time.Time) error {
+func (s *service) SendSubscriptionExpiringEmail(toEmail, userName, planTier string, expiresAt time.Time) error {
 	subject := "Peringatan: Langganan Solar Forecast Segera Berakhir"
 	localExpiry := expiresAt.Format("02 January 2006")
 
@@ -240,7 +239,7 @@ func (s *service) SendSubscriptionExpiringEmail(toEmail, userName, tier string, 
 		<div style="text-align: center; margin-top: 32px;">
 			<a href="http://localhost:5173/dashboard" style="background: #10b981; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; display: inline-block;">Perpanjang Sekarang</a>
 		</div>
-	`, userName, strings.Title(tier), localExpiry))
+	`, userName, strings.Title(planTier), localExpiry))
 
 	return s.sendEmail(toEmail, subject, body)
 }
@@ -261,12 +260,18 @@ func (s *service) DispatchDailyForecast(payload DispatchPayload) error {
 	for _, channel := range channels {
 		err := s.sendByChannel(channel, pref, payload)
 		if err == nil {
+			_ = s.LogNotification(payload.UserID, channel, "sent", "")
 			return nil
 		}
+		_ = s.LogNotification(payload.UserID, channel, "failed", err.Error())
 		errors = append(errors, fmt.Sprintf("%s: %v", channel, err))
 	}
 
 	return fmt.Errorf("all notification channels failed: %s", strings.Join(errors, "; "))
+}
+
+func (s *service) LogNotification(userID uuid.UUID, channel, status, errMsg string) error {
+	return s.repo.LogNotification(userID, channel, status, errMsg)
 }
 
 // MarkDailyForecastSent records a successful scheduled delivery for one local forecast date.
@@ -335,7 +340,7 @@ func (s *service) resolveChannelOrder(pref *NotificationPreference) []string {
 		ChannelWhatsApp: pref.WhatsAppEnabled && pref.WhatsAppOptedIn,
 	}
 
-	if pref.PlanTier != PlanPaid {
+	if pref.PlanTier != tier.Pro {
 		enabled[ChannelWhatsApp] = false
 	}
 
@@ -349,7 +354,7 @@ func (s *service) resolveChannelOrder(pref *NotificationPreference) []string {
 	addChannel(pref.PrimaryChannel)
 	addChannel(ChannelEmail)
 	addChannel(ChannelTelegram)
-	if pref.PlanTier == PlanPaid {
+	if pref.PlanTier == tier.Pro {
 		addChannel(ChannelWhatsApp)
 	}
 
@@ -527,7 +532,7 @@ func (s *service) sendForecastWhatsApp(phoneE164 string, payload DispatchPayload
 func (s *service) defaultPreference(userID uuid.UUID) *NotificationPreference {
 	return &NotificationPreference{
 		UserID:            userID,
-		PlanTier:          PlanFree,
+		PlanTier:          tier.Free,
 		PrimaryChannel:    ChannelEmail,
 		EmailEnabled:      true,
 		TelegramEnabled:   false,

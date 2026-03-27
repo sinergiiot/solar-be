@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
+	"github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -18,8 +19,8 @@ func NewHandler(s Service) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Post("/api-keys", h.CreateAPIKey)
-	r.Get("/api-keys", h.ListAPIKeys)
+	r.With(middleware.RequireFeature("api_access")).Post("/api-keys", h.CreateAPIKey)
+	r.With(middleware.RequireFeature("api_access")).Get("/api-keys", h.ListAPIKeys)
 	r.Delete("/api-keys/{keyID}", h.DeleteAPIKey)
 }
 

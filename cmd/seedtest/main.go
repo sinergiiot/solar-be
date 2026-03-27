@@ -89,7 +89,7 @@ func main() {
 			CapacityKwp: CAPACITY_KWP,
 			Lat:         LAT,
 			Lng:         LNG,
-			PlanTier:    tier.PlanEnterprise,
+			PlanTier:    tier.Enterprise,
 		})
 		if err != nil {
 			log.Fatalf("failed to create profile: %v", err)
