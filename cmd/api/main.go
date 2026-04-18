@@ -8,25 +8,26 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/admin"
+	"github.com/akbarsenawijaya/solar-forecast/internal/apikey"
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
 	"github.com/akbarsenawijaya/solar-forecast/internal/billing"
-	"github.com/akbarsenawijaya/solar-forecast/internal/report"
 	"github.com/akbarsenawijaya/solar-forecast/internal/config"
 	"github.com/akbarsenawijaya/solar-forecast/internal/device"
-	"github.com/akbarsenawijaya/solar-forecast/internal/rec"
 	"github.com/akbarsenawijaya/solar-forecast/internal/forecast"
+	appMiddleware "github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/akbarsenawijaya/solar-forecast/internal/notification"
+	"github.com/akbarsenawijaya/solar-forecast/internal/rec"
+	"github.com/akbarsenawijaya/solar-forecast/internal/report"
 	"github.com/akbarsenawijaya/solar-forecast/internal/scheduler"
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
-	appMiddleware "github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weather"
 	"github.com/akbarsenawijaya/solar-forecast/internal/weatherbaseline"
-	"github.com/akbarsenawijaya/solar-forecast/internal/apikey"
 	"github.com/akbarsenawijaya/solar-forecast/pkg/utils"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -65,7 +66,7 @@ func main() {
 	weatherSvc := weather.NewService(weatherRepo, cfg.Weather.BaseURL)
 	weatherBaselineSvc := weatherbaseline.NewService(weatherBaselineRepo, cfg.Weather.BaseURL)
 	deviceSvc := device.NewService(deviceRepo)
-	
+
 	notifSvc := notification.NewService(
 		notifRepo,
 		cfg.SMTP.Host,
@@ -95,7 +96,18 @@ func main() {
 		cfg.SMTP.Password,
 		cfg.SMTP.From,
 	)
-	billingSvc := billing.NewService(billingRepo, notifSvc, userSvc, cfg.Midtrans.ServerKey, cfg.Midtrans.IsProduction, cfg.Midtrans.AppBaseURL)
+	if strings.TrimSpace(cfg.DOKU.ClientID) == "" || strings.TrimSpace(cfg.DOKU.SecretKey) == "" {
+		log.Println("warning: DOKU_CLIENT_ID or DOKU_SECRET_KEY is empty, billing checkout will be unavailable")
+	}
+	billingSvc := billing.NewService(
+		billingRepo,
+		notifSvc,
+		userSvc,
+		cfg.DOKU.ClientID,
+		cfg.DOKU.SecretKey,
+		cfg.DOKU.BaseURL,
+		cfg.DOKU.AppBaseURL,
+	)
 	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc)
 	adminSvc := admin.NewService(db, userSvc, cfg.Auth.JWTSecret, cfg.Auth.TokenExpiryHrs)
 	apiKeySvc := apikey.NewService(apiKeyRepo, userSvc)

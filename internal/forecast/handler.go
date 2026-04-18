@@ -52,7 +52,9 @@ func (h *Handler) GetTodayForecast(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Return 400 if data missing, 500 for internal error
 		status := http.StatusInternalServerError
-		if strings.Contains(err.Error(), "weather data missing") || strings.Contains(err.Error(), "cloud_cover=0") {
+		if strings.Contains(err.Error(), "solar profile not found") {
+			status = http.StatusBadRequest
+		} else if strings.Contains(err.Error(), "weather data missing") || strings.Contains(err.Error(), "cloud_cover=0") {
 			status = http.StatusBadRequest
 		}
 		writeJSON(w, status, map[string]any{"error": err.Error()})

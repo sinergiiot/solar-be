@@ -2,6 +2,7 @@ package billing
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
@@ -41,6 +42,10 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.service.InitiateCheckout(r.Context(), userID, req)
 	if err != nil {
+		if errors.Is(err, ErrDOKUNotConfigured) {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -91,13 +96,17 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderID, _ := payload["order_id"].(string)
+	orderID := extractWebhookOrderID(payload)
 	if orderID == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
 	if err := h.service.HandleWebhook(r.Context(), orderID, payload); err != nil {
+		if errors.Is(err, ErrDOKUNotConfigured) {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -113,4 +122,34 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// extractWebhookOrderID supports multiple provider payload shapes.
+func extractWebhookOrderID(payload map[string]interface{}) string {
+	if orderID, ok := payload["order_id"].(string); ok && orderID != "" {
+		return orderID
+	}
+	if invoiceNumber, ok := payload["invoice_number"].(string); ok && invoiceNumber != "" {
+		return invoiceNumber
+	}
+
+	if orderMap, ok := payload["order"].(map[string]interface{}); ok {
+		if invoiceNumber, ok := orderMap["invoice_number"].(string); ok && invoiceNumber != "" {
+			return invoiceNumber
+		}
+		if invoiceNumber, ok := orderMap["invoiceNumber"].(string); ok && invoiceNumber != "" {
+			return invoiceNumber
+		}
+	}
+
+	if txMap, ok := payload["transaction"].(map[string]interface{}); ok {
+		if invoiceNumber, ok := txMap["invoice_number"].(string); ok && invoiceNumber != "" {
+			return invoiceNumber
+		}
+		if orderID, ok := txMap["order_id"].(string); ok && orderID != "" {
+			return orderID
+		}
+	}
+
+	return ""
 }

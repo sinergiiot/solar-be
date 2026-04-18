@@ -67,7 +67,8 @@ func (s *Scheduler) Start() {
 		log.Printf("failed to register subscription cleanup cron: %v", err)
 	}
 
-	_, err = s.cron.AddFunc("0 1 * * * *", func() {
+	// Run once daily to avoid sending duplicate expiry reminders throughout the same day.
+	_, err = s.cron.AddFunc("0 1 0 * * *", func() {
 		s.logRun("Subscription Expiry Notice", s.runSubscriptionExpiryNotice)
 	})
 	if err != nil {

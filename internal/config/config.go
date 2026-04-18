@@ -22,7 +22,7 @@ type Config struct {
 	Telegram TelegramConfig
 	WhatsApp WhatsAppConfig
 	Weather  WeatherConfig
-	Midtrans MidtransConfig
+	DOKU     DOKUConfig
 }
 
 // DebugConfig holds access control values for internal debug endpoints.
@@ -70,12 +70,12 @@ type WeatherConfig struct {
 	BaseURL string
 }
 
-// MidtransConfig holds Midtrans payment gateway settings.
-type MidtransConfig struct {
-	ServerKey    string
-	ClientKey    string
-	IsProduction bool
-	AppBaseURL   string
+// DOKUConfig holds DOKU payment gateway settings.
+type DOKUConfig struct {
+	ClientID   string
+	SecretKey  string
+	BaseURL    string
+	AppBaseURL string
 }
 
 // Load reads environment variables and returns a Config struct
@@ -118,11 +118,11 @@ func Load() *Config {
 		Weather: WeatherConfig{
 			BaseURL: getEnv("WEATHER_BASE_URL", "https://api.open-meteo.com/v1"),
 		},
-		Midtrans: MidtransConfig{
-			ServerKey:    getEnv("MIDTRANS_SERVER_KEY", ""),
-			ClientKey:    getEnv("MIDTRANS_CLIENT_KEY", ""),
-			IsProduction: getEnvAsBool("MIDTRANS_IS_PRODUCTION", false),
-			AppBaseURL:   getEnv("APP_BASE_URL", "http://localhost:5173"),
+		DOKU: DOKUConfig{
+			ClientID:   getEnv("DOKU_CLIENT_ID", ""),
+			SecretKey:  getEnv("DOKU_SECRET_KEY", ""),
+			BaseURL:    getEnv("DOKU_BASE_URL", "https://api-sandbox.doku.com"),
+			AppBaseURL: getEnv("APP_BASE_URL", getEnv("FRONTEND_ORIGIN", "http://localhost:5173")),
 		},
 	}
 }
