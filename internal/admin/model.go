@@ -135,5 +135,6 @@ type Service interface {
 	// Sprint C Extension
 	GetWeatherAPIHealth(ctx context.Context) ([]WeatherHealth, error)
 	GetAuditLogs(ctx context.Context, limit int) ([]AuditLog, error)
-	LogAdminAction(ctx context.Context, adminID uuid.UUID, action string, targetID uuid.UUID, details string, ip string) error
+	UpdateUser(ctx context.Context, userID uuid.UUID, name, email string, adminID uuid.UUID, ip string) error
+	DeleteUser(ctx context.Context, userID uuid.UUID, adminID uuid.UUID, ip string) error
 }

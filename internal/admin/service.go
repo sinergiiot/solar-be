@@ -213,6 +213,22 @@ func (s *service) GenerateImpersonationToken(ctx context.Context, userID uuid.UU
 	return signed, nil
 }
 
+func (s *service) UpdateUser(ctx context.Context, userID uuid.UUID, name, email string, adminID uuid.UUID, ip string) error {
+	if err := s.userSvc.AdminUpdateUser(userID, name, email); err != nil {
+		return err
+	}
+	_ = s.LogAdminAction(ctx, adminID, "update_user_info", userID, fmt.Sprintf("Updated user info to Name:%s Email:%s", name, email), ip)
+	return nil
+}
+
+func (s *service) DeleteUser(ctx context.Context, userID uuid.UUID, adminID uuid.UUID, ip string) error {
+	if err := s.userSvc.DeleteUser(userID); err != nil {
+		return err
+	}
+	_ = s.LogAdminAction(ctx, adminID, "delete_user", userID, "Deleted user account completely", ip)
+	return nil
+}
+
 func (s *service) GetExpiringSubscriptions(ctx context.Context, days int) ([]billing.Subscription, error) {
 	query := `
 		SELECT id, user_id, plan_tier, status, billing_cycle, amount, currency, external_checkout_id, expires_at, next_billing_at, last_payment_at, grace_period_until, created_at, updated_at

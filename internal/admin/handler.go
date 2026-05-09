@@ -23,6 +23,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		// Midddleware is already applied in main.go for /admin path, 
 		// but we double check inside handlers just in case.
 		r.Get("/admin/users", h.GetAllUsers)
+		r.Put("/admin/users/{id}", h.UpdateUser)
+		r.Delete("/admin/users/{id}", h.DeleteUser)
 		r.Put("/admin/users/{id}/tier", h.UpdateTier)
 		r.Post("/admin/users/{id}/impersonate", h.ImpersonateUser)
 		r.Get("/admin/subscriptions/expiring", h.GetExpiringSubscriptions)
@@ -66,6 +68,61 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.WriteJSON(w, http.StatusOK, users)
+}
+
+func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAdmin(w, r) {
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		auth.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	var input struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		auth.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid input"})
+		return
+	}
+
+	adminID, _ := auth.UserIDFromContext(r.Context())
+	ip := r.RemoteAddr
+
+	err = h.adminSvc.UpdateUser(r.Context(), userID, input.Name, input.Email, adminID, ip)
+	if err != nil {
+		auth.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	auth.WriteJSON(w, http.StatusOK, map[string]string{"message": "user updated"})
+}
+
+func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	if !h.checkAdmin(w, r) {
+		return
+	}
+	idStr := chi.URLParam(r, "id")
+	userID, err := uuid.Parse(idStr)
+	if err != nil {
+		auth.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	adminID, _ := auth.UserIDFromContext(r.Context())
+	ip := r.RemoteAddr
+
+	err = h.adminSvc.DeleteUser(r.Context(), userID, adminID, ip)
+	if err != nil {
+		auth.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	auth.WriteJSON(w, http.StatusOK, map[string]string{"message": "user deleted"})
 }
 
 func (h *Handler) UpdateTier(w http.ResponseWriter, r *http.Request) {

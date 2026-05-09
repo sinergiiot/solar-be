@@ -21,6 +21,8 @@ type Repository interface {
 	// E5-T6: ESG Share
 	SetESGShareToken(id uuid.UUID, token string, enabled bool) error
 	GetUserByESGShareToken(token string) (*User, error)
+	UpdateUser(id uuid.UUID, name, email string) error
+	DeleteUser(id uuid.UUID) error
 }
 
 type repository struct {
@@ -44,6 +46,7 @@ func scanUser(s interface {
 		&u.PasswordHash, &u.ForecastEfficiency,
 		&u.CompanyLogoURL, &u.CompanyName,
 		&shareToken, &u.ESGShareEnabled,
+		&u.PlanTier,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -53,9 +56,13 @@ func scanUser(s interface {
 	return u, nil
 }
 
-const selectUserCols = `id, name, email, role, email_verified, email_verified_at,
-  password_hash, forecast_efficiency, company_logo_url, company_name,
-  esg_share_token, esg_share_enabled, created_at, updated_at`
+const selectUserCols = `u.id, u.name, u.email, u.role, u.email_verified, u.email_verified_at,
+  u.password_hash, u.forecast_efficiency, u.company_logo_url, u.company_name,
+  u.esg_share_token, u.esg_share_enabled, 
+  COALESCE((SELECT plan_tier FROM subscriptions WHERE user_id = u.id AND status = 'active' ORDER BY created_at DESC LIMIT 1), 'free') as plan_tier, 
+  u.created_at, u.updated_at`
+
+const joinTiers = ``
 
 // CreateUser inserts a new user into the database
 func (r *repository) CreateUser(u *User) error {
@@ -72,7 +79,7 @@ func (r *repository) CreateUser(u *User) error {
 
 // GetUserByID fetches a single user by their UUID
 func (r *repository) GetUserByID(id uuid.UUID) (*User, error) {
-	query := `SELECT ` + selectUserCols + ` FROM users WHERE id = $1`
+	query := `SELECT ` + selectUserCols + ` FROM users u ` + joinTiers + ` WHERE u.id = $1`
 	row := r.db.QueryRow(query, id)
 	u, err := scanUser(row)
 	if err != nil {
@@ -83,7 +90,7 @@ func (r *repository) GetUserByID(id uuid.UUID) (*User, error) {
 
 // GetAllUsers returns every user stored in the database
 func (r *repository) GetAllUsers() ([]*User, error) {
-	query := `SELECT ` + selectUserCols + ` FROM users ORDER BY created_at ASC`
+	query := `SELECT ` + selectUserCols + ` FROM users u ` + joinTiers + ` ORDER BY u.created_at ASC`
 	rows, err := r.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("get all users: %w", err)
@@ -103,7 +110,7 @@ func (r *repository) GetAllUsers() ([]*User, error) {
 
 // GetUserByEmail fetches a single user by email.
 func (r *repository) GetUserByEmail(email string) (*User, error) {
-	query := `SELECT ` + selectUserCols + ` FROM users WHERE email = $1`
+	query := `SELECT ` + selectUserCols + ` FROM users u ` + joinTiers + ` WHERE u.email = $1`
 	row := r.db.QueryRow(query, email)
 	u, err := scanUser(row)
 	if err != nil {
@@ -131,7 +138,6 @@ func (r *repository) UpdatePassword(id uuid.UUID, passwordHash string) error {
 	}
 	return nil
 }
-
 // UpdateBranding updates the company logo and name for a user.
 func (r *repository) UpdateBranding(id uuid.UUID, companyName, logoURL string) error {
 	query := `UPDATE users SET company_name = $1, company_logo_url = $2 WHERE id = $3`
@@ -162,13 +168,33 @@ func (r *repository) SetESGShareToken(id uuid.UUID, token string, enabled bool) 
 
 // GetUserByESGShareToken retrieves a user by their public ESG share token.
 func (r *repository) GetUserByESGShareToken(token string) (*User, error) {
-	query := `SELECT ` + selectUserCols + ` FROM users WHERE esg_share_token = $1 AND esg_share_enabled = TRUE`
+	query := `SELECT ` + selectUserCols + ` FROM users u WHERE u.esg_share_token = $1 AND u.esg_share_enabled = TRUE`
 	row := r.db.QueryRow(query, token)
 	u, err := scanUser(row)
 	if err != nil {
 		return nil, fmt.Errorf("get user by esg share token: %w", err)
 	}
 	return u, nil
+}
+
+// UpdateUser updates basic user info.
+func (r *repository) UpdateUser(id uuid.UUID, name, email string) error {
+	query := `UPDATE users SET name = $1, email = $2, updated_at = NOW() WHERE id = $3`
+	_, err := r.db.Exec(query, name, email, id)
+	if err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+	return nil
+}
+
+// DeleteUser removes a user from the database.
+func (r *repository) DeleteUser(id uuid.UUID) error {
+	query := `DELETE FROM users WHERE id = $1`
+	_, err := r.db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
 }
 
 // GenerateShareToken returns a secure random 32-byte hex token.

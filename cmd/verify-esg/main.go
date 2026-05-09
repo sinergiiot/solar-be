@@ -23,7 +23,7 @@ func main() {
 	solarSvc := solar.NewService(solarRepo)
 	forecastRepo := forecast.NewRepository(db)
 	forecastSvc := forecast.NewService(forecastRepo, solarSvc, nil, nil, nil, nil)
-	reportSvc := report.NewService(forecastSvc, solarSvc, nil, nil)
+	reportSvc := report.NewService(forecastSvc, solarSvc, nil, nil, report.NewRepository(db))
 
 	uid := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 	summary, err := reportSvc.GetESGSummary(context.Background(), uid, "enterprise", 2026)

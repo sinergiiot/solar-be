@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
 	"github.com/akbarsenawijaya/solar-forecast/internal/middleware"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type Handler struct {
@@ -34,6 +36,11 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	// Epic 4: CO2 Tracker
 	r.With(middleware.RequireFeature("green_report")).Get("/report/co2", h.GetCO2Summary)
 	r.With(middleware.RequireFeature("green_report")).Get("/report/co2/pdf", h.DownloadMRVPDF)
+
+	// New Report History & Real Reports
+	r.Get("/report/history", h.GetReportHistory)
+	r.Get("/report/monthly/pdf", h.DownloadMonthlySummaryPDF)
+	r.Get("/report/site-audit/pdf", h.DownloadSiteAuditPDF)
 }
 
 func (h *Handler) RegisterPublicRoutes(r chi.Router) {
@@ -414,7 +421,11 @@ func (h *Handler) GetPublicESGSummary(w http.ResponseWriter, r *http.Request) {
 
 	u, err := h.userSvc.GetUserByESGShareToken(token)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "shared report not found or disabled")
+		if err.Error() == "sql: no rows in result set" || strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "shared report not found or disabled")
+		} else {
+			writeError(w, http.StatusInternalServerError, "failed to retrieve shared report: "+err.Error())
+		}
 		return
 	}
 
@@ -438,4 +449,55 @@ func (h *Handler) GetPublicESGSummary(w http.ResponseWriter, r *http.Request) {
 		"company_name": u.CompanyName,
 		"company_logo": u.CompanyLogoURL,
 	})
+}
+
+func (h *Handler) GetReportHistory(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserIDFromContext(r.Context())
+	history, err := h.service.GetReportHistory(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
+}
+
+func (h *Handler) DownloadMonthlySummaryPDF(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserIDFromContext(r.Context())
+	month := r.URL.Query().Get("month")
+	yearStr := r.URL.Query().Get("year")
+	year := time.Now().Year()
+	if yearStr != "" {
+		fmt.Sscanf(yearStr, "%d", &year)
+	}
+
+	if month == "" {
+		writeError(w, http.StatusBadRequest, "month required")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"Monthly_Summary_%s_%d.pdf\"", month, year))
+	if err := h.service.GenerateMonthlySummaryPDF(r.Context(), userID, month, year, w); err != nil {
+		log.Printf("Failed to generate monthly summary: %v", err)
+	}
+}
+
+func (h *Handler) DownloadSiteAuditPDF(w http.ResponseWriter, r *http.Request) {
+	userID, _ := auth.UserIDFromContext(r.Context())
+	profileIDStr := r.URL.Query().Get("solar_profile_id")
+	if profileIDStr == "" {
+		writeError(w, http.StatusBadRequest, "solar_profile_id required")
+		return
+	}
+	profileID, err := uuid.Parse(profileIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid solar_profile_id")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"Site_Audit_Technical.pdf\"")
+	if err := h.service.GenerateSiteAuditPDF(r.Context(), userID, profileID, w); err != nil {
+		log.Printf("Failed to generate site audit: %v", err)
+	}
 }

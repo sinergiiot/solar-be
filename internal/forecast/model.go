@@ -123,3 +123,26 @@ type ForecastDebugBreakdown struct {
 	Formula      string              `json:"formula"`
 	PredictedKwh float64             `json:"predicted_kwh"`
 }
+
+// ListActualsRequest represents the payload for paginated actuals history
+type ListActualsRequest struct {
+	Page      int    `json:"page"`
+	Limit     int    `json:"limit"`
+	Order     string `json:"order"`
+	Sort      string `json:"sort"`
+	Search    string `json:"search"`
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+}
+
+// ActualWithProfile combines actual production data with its solar profile site name
+type ActualWithProfile struct {
+	ActualDaily
+	SiteName string `json:"site_name"`
+}
+
+// ForecastWithProfile combines forecast data with its solar profile site name
+type ForecastWithProfile struct {
+	Forecast
+	SiteName string `json:"site_name"`
+}

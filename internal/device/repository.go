@@ -250,21 +250,39 @@ func (r *repository) SaveTelemetryRaw(t *TelemetryRaw) (bool, error) {
 	return inserted, nil
 }
 
-// RebuildActualDailyFromTelemetry recomputes one day actual from telemetry snapshots.
+// RebuildActualDailyFromTelemetry recomputes one day actual from telemetry snapshots using Totalizer logic.
 func (r *repository) RebuildActualDailyFromTelemetry(userID uuid.UUID, solarProfileID *uuid.UUID, day time.Time) error {
+	// Logic: Production = (Max Today) - (Max Yesterday). 
+	// If yesterday is missing, fallback to (Max Today) - (Min Today).
 	query := `
-		WITH total AS (
-			SELECT COALESCE(SUM(energy_kwh), 0) AS total_kwh
+		WITH device_max AS (
+			SELECT 
+				tr.device_id,
+				MAX(tr.energy_kwh) as max_today,
+				MIN(tr.energy_kwh) as min_today,
+				COALESCE(
+					(SELECT MAX(tr2.energy_kwh) 
+					 FROM telemetry_raw tr2 
+					 WHERE tr2.device_id = tr.device_id 
+					   AND (tr2.event_time AT TIME ZONE 'UTC')::date < $3
+					),
+					MIN(tr.energy_kwh)
+				) as max_prev
 			FROM telemetry_raw tr
 			JOIN devices d ON d.id = tr.device_id
 			WHERE tr.user_id = $1
 			  AND d.solar_profile_id IS NOT DISTINCT FROM $2
 			  AND (tr.event_time AT TIME ZONE 'UTC')::date = $3
+			GROUP BY tr.device_id
+		),
+		total AS (
+			SELECT SUM(max_today - max_prev) AS total_kwh
+			FROM device_max
 		)
 		INSERT INTO actual_daily (id, user_id, solar_profile_id, date, actual_kwh, source, created_at)
-		VALUES ($4, $1, $2, $3, (SELECT total_kwh FROM total), 'iot', $5)
+		VALUES ($4, $1, $2, $3, (SELECT COALESCE(total_kwh, 0) FROM total), 'iot', $5)
 		ON CONFLICT (user_id, solar_profile_id, date) DO UPDATE
-		SET actual_kwh = (SELECT total_kwh FROM total),
+		SET actual_kwh = (SELECT COALESCE(total_kwh, 0) FROM total),
 		    source = 'iot'
 	`
 

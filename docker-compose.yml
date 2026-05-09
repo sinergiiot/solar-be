@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: solar-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: solar_forecast
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: solar-api
+    restart: always
+    environment:
+      DATABASE_URL: postgres://postgres:password123@db:5432/solar_forecast?sslmode=disable
+      PORT: 8080
+      AUTH_JWT_SECRET: your-production-secret-key-change-me
+      FRONTEND_ORIGIN: http://localhost:3000
+      APP_BASE_URL: http://localhost:3000
+      # DOKU_CLIENT_ID: 
+      # DOKU_SECRET_KEY: 
+      # DOKU_BASE_URL: https://api-sandbox.doku.com
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend_v2
+      dockerfile: Dockerfile
+    container_name: solar-web
+    restart: always
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

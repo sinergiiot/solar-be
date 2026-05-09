@@ -19,6 +19,7 @@ import (
 	"github.com/akbarsenawijaya/solar-forecast/internal/notification"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/google/uuid"
+	"github.com/jung-kurt/gofpdf"
 )
 
 var ErrDOKUNotConfigured = errors.New("payment gateway is not configured: DOKU_CLIENT_ID or DOKU_SECRET_KEY is empty")
@@ -31,6 +32,8 @@ type Repository interface {
 	GetLatestSubscription(ctx context.Context, userID uuid.UUID) (*Subscription, error)
 	UpdateSubscription(ctx context.Context, sub *Subscription) error
 	GetSubscriptionByExternalID(ctx context.Context, extID string) (*Subscription, error)
+	GetSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]*Subscription, error)
+	GetSubscriptionByID(ctx context.Context, id uuid.UUID) (*Subscription, error)
 	// For scheduler/cleanup
 	GetPastDueSubscriptions(ctx context.Context, now time.Time) ([]*Subscription, error)
 	GetExpiringSubscriptions(ctx context.Context, start, end time.Time) ([]*Subscription, error)
@@ -43,6 +46,8 @@ type Service interface {
 	CleanupExpiredSubscriptions(ctx context.Context) error
 	NotifyExpiringSubscriptions(ctx context.Context) error
 	CancelSubscription(ctx context.Context, userID uuid.UUID) error
+	GetSubscriptionHistory(ctx context.Context, userID uuid.UUID) ([]*Subscription, error)
+	GenerateInvoicePDF(ctx context.Context, subID uuid.UUID, userID uuid.UUID, writer io.Writer) error
 }
 
 type service struct {
@@ -90,11 +95,29 @@ func (s *service) InitiateCheckout(ctx context.Context, userID uuid.UUID, req Ch
 		return nil, err
 	}
 
-	// 1. Determine price
+	// 0. Check for existing pending transactions
+	subs, err := s.repo.GetSubscriptionsByUserID(ctx, userID)
+	if err == nil {
+		for _, sub := range subs {
+			if sub.Status == "pending" {
+				return nil, fmt.Errorf("you have a pending transaction. Please complete or wait for your previous payment to be processed")
+			}
+		}
+	}
+
+	// 1. Determine price & duration
 	amount := int64(99000) // Default Pro Monthly
 	plan := strings.ToLower(req.PlanTier)
 	if plan == "enterprise" {
 		amount = 499000
+	}
+
+	isYearly := strings.ToLower(req.BillingCycle) == "yearly"
+	durationMonths := 1
+	if isYearly {
+		// Apply 20% discount for yearly: (Monthly * 12) * 0.8
+		amount = int64(float64(amount) * 12 * 0.8)
+		durationMonths = 12
 	}
 
 	orderID := fmt.Sprintf("SUB-%s-%d", userID.String()[:8], time.Now().Unix())
@@ -189,7 +212,8 @@ func (s *service) InitiateCheckout(ctx context.Context, userID uuid.UUID, req Ch
 		Amount:             amount,
 		Currency:           "IDR",
 		ExternalCheckoutID: orderID,
-		ExpiresAt:          time.Now().AddDate(0, 1, 0), // Default 1 month
+		PaymentURL:         checkoutURL,
+		ExpiresAt:          time.Now().AddDate(0, durationMonths, 0),
 		CreatedAt:          time.Now(),
 		UpdatedAt:          time.Now(),
 	}
@@ -301,7 +325,13 @@ func (s *service) activateSubscription(ctx context.Context, sub *Subscription) e
 
 	sub.Status = "active"
 	sub.LastPaymentAt = ptrTime(time.Now())
-	sub.ExpiresAt = time.Now().AddDate(0, 1, 0)
+	
+	durationMonths := 1
+	if strings.ToLower(sub.BillingCycle) == "yearly" {
+		durationMonths = 12
+	}
+	sub.ExpiresAt = time.Now().AddDate(0, durationMonths, 0)
+	
 	sub.GracePeriodUntil = ptrTime(sub.ExpiresAt.AddDate(0, 0, 7))
 	if err := s.repo.UpdateSubscription(ctx, sub); err != nil {
 		return err
@@ -381,6 +411,10 @@ func (s *service) CancelSubscription(ctx context.Context, userID uuid.UUID) erro
 
 	// Reset tier to free immediately
 	return s.notifSvc.SetPlanTier(userID, "free", nil)
+}
+
+func (s *service) GetSubscriptionHistory(ctx context.Context, userID uuid.UUID) ([]*Subscription, error) {
+	return s.repo.GetSubscriptionsByUserID(ctx, userID)
 }
 
 // generateDigest returns base64 SHA-256 digest from request body bytes.
@@ -499,3 +533,157 @@ func extractDOKUErrorDetails(messages, errorMessages []string, rawBody []byte) s
 
 // ptrTime returns pointer value for a time object.
 func ptrTime(t time.Time) *time.Time { return &t }
+
+func (s *service) GenerateInvoicePDF(ctx context.Context, subID uuid.UUID, userID uuid.UUID, writer io.Writer) error {
+	sub, err := s.repo.GetSubscriptionByID(ctx, subID)
+	if err != nil {
+		return err
+	}
+	if sub == nil || sub.UserID != userID {
+		return fmt.Errorf("subscription not found or unauthorized")
+	}
+
+	u, err := s.userSvc.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+
+	// --- 1. Header with Accent ---
+	pdf.SetFillColor(30, 41, 59) // Dark Slate
+	pdf.Rect(0, 0, 210, 40, "F")
+
+	pdf.SetFont("Arial", "B", 20)
+	pdf.SetTextColor(255, 255, 255)
+	pdf.SetXY(15, 12)
+	pdf.Cell(0, 10, "SOLAR FORECAST")
+	
+	pdf.SetFont("Arial", "", 10)
+	pdf.SetXY(15, 22)
+	pdf.Cell(0, 5, "Next-Gen Solar Intelligence Platform")
+	
+	pdf.SetFont("Arial", "B", 30)
+	pdf.SetXY(140, 15)
+	pdf.CellFormat(55, 10, "INVOICE", "", 0, "R", false, 0, "")
+
+	// --- 2. Invoice Meta Details ---
+	pdf.SetTextColor(30, 41, 59)
+	pdf.SetFont("Arial", "B", 12)
+	pdf.SetXY(15, 50)
+	pdf.Cell(0, 10, "Billed To:")
+	
+	pdf.SetFont("Arial", "B", 12)
+	pdf.SetXY(140, 50)
+	pdf.CellFormat(55, 10, "Invoice Information:", "", 0, "R", false, 0, "")
+
+	// Left: User Info
+	pdf.SetFont("Arial", "B", 11)
+	pdf.SetXY(15, 60)
+	pdf.Cell(0, 5, u.Name)
+	pdf.Ln(5)
+	pdf.SetFont("Arial", "", 10)
+	pdf.SetX(15)
+	pdf.Cell(0, 5, u.Email)
+	pdf.Ln(5)
+	if u.CompanyName != "" {
+		pdf.SetX(15)
+		pdf.Cell(0, 5, u.CompanyName)
+		pdf.Ln(5)
+	}
+
+	// Right: Invoice Info
+	pdf.SetXY(120, 60)
+	pdf.SetFont("Arial", "", 10)
+	pdf.CellFormat(75, 5, "Invoice #: INV-" + sub.ID.String()[:8], "", 0, "R", false, 0, "")
+	pdf.Ln(5)
+	pdf.SetX(120)
+	pdf.CellFormat(75, 5, "Date: " + sub.CreatedAt.Format("January 02, 2006"), "", 0, "R", false, 0, "")
+	pdf.Ln(5)
+	pdf.SetX(120)
+	pdf.CellFormat(75, 5, "Order ID: " + sub.ExternalCheckoutID, "", 0, "R", false, 0, "")
+
+	// Status Badge
+	pdf.Ln(10)
+	pdf.SetX(160)
+	if sub.Status == "active" {
+		pdf.SetFillColor(16, 185, 129) // Emerald
+		pdf.SetTextColor(255, 255, 255)
+		pdf.CellFormat(35, 8, "PAID", "0", 0, "C", true, 0, "")
+	} else {
+		pdf.SetFillColor(245, 158, 11) // Amber
+		pdf.SetTextColor(255, 255, 255)
+		pdf.CellFormat(35, 8, strings.ToUpper(sub.Status), "0", 0, "C", true, 0, "")
+	}
+
+	// --- 3. Table of Items ---
+	pdf.Ln(20)
+	pdf.SetX(15)
+	pdf.SetFillColor(241, 245, 249) // Light Slate
+	pdf.SetTextColor(71, 85, 105)
+	pdf.SetFont("Arial", "B", 10)
+	
+	pdf.CellFormat(110, 12, "  DESCRIPTION", "0", 0, "L", true, 0, "")
+	pdf.CellFormat(30, 12, "CYCLE", "0", 0, "C", true, 0, "")
+	pdf.CellFormat(40, 12, "AMOUNT  ", "0", 1, "R", true, 0, "")
+
+	// Row 1
+	pdf.SetTextColor(30, 41, 59)
+	pdf.SetFont("Arial", "", 10)
+	pdf.SetX(15)
+	desc := fmt.Sprintf("  Solar Forecast %s Plan Subscription", strings.Title(sub.PlanTier))
+	pdf.CellFormat(110, 15, desc, "B", 0, "L", false, 0, "")
+	pdf.CellFormat(30, 15, strings.Title(sub.BillingCycle), "B", 0, "C", false, 0, "")
+	pdf.CellFormat(40, 15, fmt.Sprintf("IDR %s  ", formatCurrency(float64(sub.Amount))), "B", 1, "R", false, 0, "")
+
+	// --- 4. Totals Area ---
+	pdf.Ln(10)
+	pdf.SetX(130)
+	pdf.SetFont("Arial", "B", 10)
+	pdf.SetTextColor(100, 116, 139)
+	pdf.CellFormat(30, 10, "Subtotal", "", 0, "L", false, 0, "")
+	pdf.SetTextColor(30, 41, 59)
+	pdf.CellFormat(35, 10, fmt.Sprintf("IDR %s", formatCurrency(float64(sub.Amount))), "", 1, "R", false, 0, "")
+	
+	pdf.SetX(130)
+	pdf.SetFont("Arial", "B", 12)
+	pdf.SetTextColor(30, 41, 59)
+	pdf.CellFormat(30, 12, "TOTAL", "T", 0, "L", false, 0, "")
+	pdf.SetFillColor(248, 250, 252)
+	pdf.CellFormat(35, 12, fmt.Sprintf("IDR %s", formatCurrency(float64(sub.Amount))), "T", 1, "R", true, 0, "")
+
+	// --- 5. Footer ---
+	pdf.SetY(-60)
+	pdf.SetX(15)
+	pdf.SetFont("Arial", "B", 10)
+	pdf.SetTextColor(30, 41, 59)
+	pdf.Cell(0, 5, "Payment Notes:")
+	pdf.Ln(6)
+	pdf.SetFont("Arial", "", 9)
+	pdf.SetTextColor(100, 116, 139)
+	pdf.MultiCell(0, 5, "This payment was processed securely via DOKU Payment Gateway. The subscription will be automatically renewed unless cancelled from your dashboard settings. No signature is required for this digital invoice.", "", "L", false)
+
+	pdf.SetY(-25)
+	pdf.SetFont("Arial", "I", 8)
+	pdf.SetTextColor(148, 163, 184)
+	pdf.CellFormat(0, 10, "Solar Forecast | Empowering Renewable Energy Future | thingsid.com", "", 0, "C", false, 0, "")
+
+	return pdf.Output(writer)
+}
+
+func formatCurrency(n float64) string {
+	s := fmt.Sprintf("%.0f", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var res []string
+	for i := len(s); i > 0; i -= 3 {
+		start := i - 3
+		if start < 0 {
+			start = 0
+		}
+		res = append([]string{s[start:i]}, res...)
+	}
+	return strings.Join(res, ".")
+}

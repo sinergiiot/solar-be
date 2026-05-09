@@ -41,6 +41,8 @@ type Service interface {
 	GetForecastHistory(userID uuid.UUID, planTier string, days int, filter HistoryFilter) (*HistoryPaginatedResponse[*Forecast], error)
 	GetActualHistory(userID uuid.UUID, planTier string, days int, filter HistoryFilter) (*HistoryPaginatedResponse[*ActualDaily], error)
 	GetDashboardSummary(userID uuid.UUID, planTier string) (*DashboardSummary, error)
+	GetPaginatedActuals(userID uuid.UUID, req ListActualsRequest) (*HistoryPaginatedResponse[ActualWithProfile], error)
+	GetPaginatedForecasts(userID uuid.UUID, req ListActualsRequest) (*HistoryPaginatedResponse[ForecastWithProfile], error)
 }
 
 
@@ -609,6 +611,34 @@ func (s *service) GetDashboardSummary(userID uuid.UUID, planTier string) (*Dashb
 	}
 
 	return summary, nil
+}
+
+func (s *service) GetPaginatedActuals(userID uuid.UUID, req ListActualsRequest) (*HistoryPaginatedResponse[ActualWithProfile], error) {
+	items, total, err := s.repo.GetPaginatedActuals(userID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HistoryPaginatedResponse[ActualWithProfile]{
+		Items:      items,
+		TotalCount: total,
+		Page:       req.Page,
+		PageSize:   req.Limit,
+	}, nil
+}
+
+func (s *service) GetPaginatedForecasts(userID uuid.UUID, req ListActualsRequest) (*HistoryPaginatedResponse[ForecastWithProfile], error) {
+	items, total, err := s.repo.GetPaginatedForecasts(userID, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HistoryPaginatedResponse[ForecastWithProfile]{
+		Items:      items,
+		TotalCount: total,
+		Page:       req.Page,
+		PageSize:   req.Limit,
+	}, nil
 }
 
 // getWeatherFactor returns a continuous transmittance factor based on cloud cover percentage.

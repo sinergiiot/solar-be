@@ -159,6 +159,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			"email":          u.Email,
 			"role":           u.Role,
 			"email_verified": u.EmailVerified,
+			"tier":           u.PlanTier,
 		},
 	})
 }

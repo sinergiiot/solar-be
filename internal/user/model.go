@@ -21,6 +21,7 @@ type User struct {
 	// E5-T6: ESG Public Share
 	ESGShareToken   string `json:"esg_share_token,omitempty"`
 	ESGShareEnabled bool   `json:"esg_share_enabled"`
+	PlanTier        string    `json:"tier"`
 	CreatedAt          time.Time `json:"created_at"`
 	UpdatedAt          time.Time `json:"updated_at"`
 }

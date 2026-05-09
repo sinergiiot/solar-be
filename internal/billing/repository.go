@@ -21,13 +21,13 @@ func (r *repository) CreateSubscription(ctx context.Context, sub *Subscription) 
 	query := `
 		INSERT INTO subscriptions (
 			id, user_id, plan_tier, status, billing_cycle,
-			amount, currency, external_checkout_id, expires_at,
+			amount, currency, external_checkout_id, payment_url, expires_at,
 			next_billing_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		sub.ID, sub.UserID, sub.PlanTier, sub.Status, sub.BillingCycle,
-		sub.Amount, sub.Currency, sub.ExternalCheckoutID, sub.ExpiresAt,
+		sub.Amount, sub.Currency, sub.ExternalCheckoutID, sub.PaymentURL, sub.ExpiresAt,
 		sub.NextBillingAt, sub.CreatedAt, sub.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create subscription: %w", err)
@@ -37,8 +37,8 @@ func (r *repository) CreateSubscription(ctx context.Context, sub *Subscription) 
 
 func (r *repository) GetLatestSubscription(ctx context.Context, userID uuid.UUID) (*Subscription, error) {
 	query := `
-		SELECT id, user_id, plan_tier, status, billing_cycle,
-			amount, currency, external_checkout_id, expires_at,
+		SELECT id, user_id, plan_tier, status, COALESCE(billing_cycle, 'monthly'),
+			amount, COALESCE(currency, 'IDR'), COALESCE(external_checkout_id, ''), COALESCE(payment_url, ''), expires_at,
 			next_billing_at, last_payment_at, grace_period_until,
 			created_at, updated_at
 		FROM subscriptions
@@ -49,7 +49,7 @@ func (r *repository) GetLatestSubscription(ctx context.Context, userID uuid.UUID
 	sub := &Subscription{}
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(
 		&sub.ID, &sub.UserID, &sub.PlanTier, &sub.Status, &sub.BillingCycle,
-		&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.ExpiresAt,
+		&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.PaymentURL, &sub.ExpiresAt,
 		&sub.NextBillingAt, &sub.LastPaymentAt, &sub.GracePeriodUntil,
 		&sub.CreatedAt, &sub.UpdatedAt)
 	if err != nil {
@@ -64,13 +64,13 @@ func (r *repository) GetLatestSubscription(ctx context.Context, userID uuid.UUID
 func (r *repository) UpdateSubscription(ctx context.Context, sub *Subscription) error {
 	query := `
 		UPDATE subscriptions
-		SET plan_tier = $2, status = $3, expires_at = $4,
-			next_billing_at = $5, last_payment_at = $6,
-			grace_period_until = $7, updated_at = $8
+		SET plan_tier = $2, status = $3, payment_url = $4, expires_at = $5,
+			next_billing_at = $6, last_payment_at = $7,
+			grace_period_until = $8, updated_at = $9
 		WHERE id = $1
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		sub.ID, sub.PlanTier, sub.Status, sub.ExpiresAt,
+		sub.ID, sub.PlanTier, sub.Status, sub.PaymentURL, sub.ExpiresAt,
 		sub.NextBillingAt, sub.LastPaymentAt,
 		sub.GracePeriodUntil, time.Now().UTC())
 	if err != nil {
@@ -81,8 +81,8 @@ func (r *repository) UpdateSubscription(ctx context.Context, sub *Subscription) 
 
 func (r *repository) GetSubscriptionByExternalID(ctx context.Context, extID string) (*Subscription, error) {
 	query := `
-		SELECT id, user_id, plan_tier, status, billing_cycle,
-			amount, currency, external_checkout_id, expires_at,
+		SELECT id, user_id, plan_tier, status, COALESCE(billing_cycle, 'monthly'),
+			amount, COALESCE(currency, 'IDR'), COALESCE(external_checkout_id, ''), COALESCE(payment_url, ''), expires_at,
 			next_billing_at, last_payment_at, grace_period_until,
 			created_at, updated_at
 		FROM subscriptions
@@ -93,7 +93,7 @@ func (r *repository) GetSubscriptionByExternalID(ctx context.Context, extID stri
 	sub := &Subscription{}
 	err := r.db.QueryRowContext(ctx, query, extID).Scan(
 		&sub.ID, &sub.UserID, &sub.PlanTier, &sub.Status, &sub.BillingCycle,
-		&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.ExpiresAt,
+		&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.PaymentURL, &sub.ExpiresAt,
 		&sub.NextBillingAt, &sub.LastPaymentAt, &sub.GracePeriodUntil,
 		&sub.CreatedAt, &sub.UpdatedAt)
 	if err != nil {
@@ -151,4 +151,60 @@ func (r *repository) GetExpiringSubscriptions(ctx context.Context, start, end ti
 		subs = append(subs, sub)
 	}
 	return subs, nil
+}
+
+func (r *repository) GetSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]*Subscription, error) {
+	query := `
+		SELECT id, user_id, plan_tier, status, COALESCE(billing_cycle, 'monthly'),
+			amount, COALESCE(currency, 'IDR'), COALESCE(external_checkout_id, ''), COALESCE(payment_url, ''), expires_at,
+			next_billing_at, last_payment_at, grace_period_until,
+			created_at, updated_at
+		FROM subscriptions
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get subscriptions by user id: %w", err)
+	}
+	defer rows.Close()
+
+	var subs []*Subscription
+	for rows.Next() {
+		sub := &Subscription{}
+		err := rows.Scan(
+			&sub.ID, &sub.UserID, &sub.PlanTier, &sub.Status, &sub.BillingCycle,
+			&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.PaymentURL, &sub.ExpiresAt,
+			&sub.NextBillingAt, &sub.LastPaymentAt, &sub.GracePeriodUntil,
+			&sub.CreatedAt, &sub.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, nil
+}
+
+func (r *repository) GetSubscriptionByID(ctx context.Context, id uuid.UUID) (*Subscription, error) {
+	query := `
+		SELECT id, user_id, plan_tier, status, COALESCE(billing_cycle, 'monthly'),
+			amount, COALESCE(currency, 'IDR'), COALESCE(external_checkout_id, ''), COALESCE(payment_url, ''), expires_at,
+			next_billing_at, last_payment_at, grace_period_until,
+			created_at, updated_at
+		FROM subscriptions
+		WHERE id = $1
+	`
+	sub := &Subscription{}
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&sub.ID, &sub.UserID, &sub.PlanTier, &sub.Status, &sub.BillingCycle,
+		&sub.Amount, &sub.Currency, &sub.ExternalCheckoutID, &sub.PaymentURL, &sub.ExpiresAt,
+		&sub.NextBillingAt, &sub.LastPaymentAt, &sub.GracePeriodUntil,
+		&sub.CreatedAt, &sub.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get subscription by id: %w", err)
+	}
+	return sub, nil
 }

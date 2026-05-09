@@ -29,7 +29,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Get("/forecast/today", h.GetTodayForecast)
 	r.Post("/forecast/actual", h.RecordActualDaily)
 	r.Get("/forecast/history", h.GetForecastHistory)
+	r.Post("/forecast/history/list", h.ListPaginatedForecasts)
 	r.Get("/forecast/actuals/history", h.GetActualHistory)
+	r.Post("/forecast/actuals/history/list", h.ListPaginatedActuals)
 	r.Get("/forecast/summary", h.GetSummary)
 	r.Get("/forecast/debug/calculate", h.GetForecastDebugBreakdown)
 }
@@ -189,6 +191,52 @@ func (h *Handler) GetActualHistory(w http.ResponseWriter, r *http.Request) {
 		"page":        actuals.Page,
 		"page_size":   actuals.PageSize,
 	})
+}
+
+// ListPaginatedActuals handles POST /forecast/actuals/history/list.
+func (h *Handler) ListPaginatedActuals(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req ListActualsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	res, err := h.service.GetPaginatedActuals(userID, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// ListPaginatedForecasts handles POST /forecast/history/list.
+func (h *Handler) ListPaginatedForecasts(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var req ListActualsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	res, err := h.service.GetPaginatedForecasts(userID, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 // GetSummary handles GET /forecast/summary for authenticated user.

@@ -13,6 +13,7 @@ import (
 	"github.com/akbarsenawijaya/solar-forecast/internal/solar"
 	"github.com/akbarsenawijaya/solar-forecast/internal/user"
 	"github.com/google/uuid"
+	"github.com/jung-kurt/gofpdf"
 )
 
 type Service interface {
@@ -26,6 +27,9 @@ type Service interface {
 	GetRECReadinessReport(ctx context.Context, userID uuid.UUID) (*RECReadinessReport, error)
 	GenerateRECReadinessReportPDF(report *RECReadinessReport, userObj *user.User, writer io.Writer) error
 	GenerateCSVHistory(ctx context.Context, userID uuid.UUID, planTier string, req ReportRequest, writer io.Writer) error
+	GetReportHistory(userID uuid.UUID) ([]*ReportHistory, error)
+	GenerateMonthlySummaryPDF(ctx context.Context, userID uuid.UUID, month string, year int, writer io.Writer) error
+	GenerateSiteAuditPDF(ctx context.Context, userID uuid.UUID, profileID uuid.UUID, writer io.Writer) error
 }
 
 type service struct {
@@ -33,14 +37,16 @@ type service struct {
 	solarService    solar.Service
 	recService      rec.Service
 	userSvc         user.Service
+	repo            Repository
 }
 
-func NewService(forecastSvc forecast.Service, solarSvc solar.Service, recSvc rec.Service, userSvc user.Service) Service {
+func NewService(forecastSvc forecast.Service, solarSvc solar.Service, recSvc rec.Service, userSvc user.Service, repo Repository) Service {
 	return &service{
 		forecastService: forecastSvc,
 		solarService:    solarSvc,
 		recService:      recSvc,
 		userSvc:         userSvc,
+		repo:            repo,
 	}
 }
 
@@ -212,10 +218,21 @@ func (s *service) GetESGSummary(ctx context.Context, userID uuid.UUID, planTier 
 		year = time.Now().Year()
 	}
 
-	// 1. Get all solar profiles for this user
+	// 1. Get all solar profiles for this user to map IDs to info
 	profiles, err := s.solarService.GetSolarProfilesByUserID(userID)
 	if err != nil {
 		return nil, err
+	}
+
+	profileMap := make(map[uuid.UUID]*solar.SolarProfile)
+	siteDataMap := make(map[uuid.UUID]*SiteESG)
+	for _, p := range profiles {
+		profileMap[p.ID] = p
+		siteDataMap[p.ID] = &SiteESG{
+			ProfileID:   p.ID,
+			ProfileName: p.SiteName,
+			Location:    fmt.Sprintf("%.4f, %.4f", p.Lat, p.Lng),
+		}
 	}
 
 	summary := &ESGSummary{
@@ -232,52 +249,70 @@ func (s *service) GetESGSummary(ctx context.Context, userID uuid.UUID, planTier 
 	startDate := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
 	endDate := time.Date(year, 12, 31, 23, 59, 59, 999, time.UTC)
 
-	// 2. Iterate through profiles and aggregate data
-	for _, p := range profiles {
-		filter := forecast.HistoryFilter{
-			SolarProfileID: &p.ID,
-			StartDate:      &startDate,
-			EndDate:        &endDate,
-		}
-
-		actuals, err := s.forecastService.GetActualHistory(userID, planTier, 400, filter)
-		if err != nil {
-			continue
-		}
-
-		co2Factor := getEmissionFactor(p.Lat, p.Lng)
-		siteActualKwh := 0.0
-
-		for _, a := range actuals.Items {
-			siteActualKwh += a.ActualKwh
-			
-			// Monthly aggregation for trend
-			mIndex := int(a.Date.Month()) - 1
-			summary.YearlyTrend[mIndex].ActualMwh += a.ActualKwh / 1000.0
-			summary.YearlyTrend[mIndex].CO2SavedTon += (a.ActualKwh * co2Factor) / 1000.0
-		}
-
-		siteActualMwh := siteActualKwh / 1000.0
-		siteCO2Ton := (siteActualKwh * co2Factor) / 1000.0
-		
-		summary.TotalActualMwh += siteActualMwh
-		summary.TotalCO2SavedTon += siteCO2Ton
-		summary.TotalSavingsIDR += siteActualKwh * 1444
-
-		summary.SiteBreakdown = append(summary.SiteBreakdown, SiteESG{
-			ProfileID:   p.ID,
-			ProfileName: p.SiteName,
-			Location:    fmt.Sprintf("%.4f, %.4f", p.Lat, p.Lng),
-			ActualMwh:   siteActualMwh,
-			CO2SavedTon: siteCO2Ton,
-			RECReached:  int(siteActualMwh),
-		})
+	// 2. Fetch ALL actual production for this user in one go (No profile filter)
+	filter := forecast.HistoryFilter{
+		StartDate: &startDate,
+		EndDate:   &endDate,
+	}
+	actuals, err := s.forecastService.GetActualHistory(userID, planTier, 3650, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch aggregate production data: %w", err)
 	}
 
-	// 3. Global Stats
-	summary.TotalTreesEq = int(summary.TotalCO2SavedTon * 1000 / 20) // 20kg per tree/year
+	// 3. Aggregate data in memory
+	for _, a := range actuals.Items {
+		var co2Factor float64
+		var siteID *uuid.UUID
+
+		if a.SolarProfileID != nil {
+			if p, ok := profileMap[*a.SolarProfileID]; ok {
+				co2Factor = getEmissionFactor(p.Lat, p.Lng)
+				siteID = a.SolarProfileID
+			} else {
+				co2Factor = 0.78 // Unknown profile
+			}
+		} else {
+			co2Factor = 0.78 // Global production
+		}
+
+		co2Ton := (a.ActualKwh * co2Factor) / 1000.0
+		mwh := a.ActualKwh / 1000.0
+
+		// Update Totals
+		summary.TotalActualMwh += mwh
+		summary.TotalCO2SavedTon += co2Ton
+		summary.TotalSavingsIDR += a.ActualKwh * 1444
+
+		// Update Monthly Trend
+		mIndex := int(a.Date.Month()) - 1
+		if mIndex >= 0 && mIndex < 12 {
+			summary.YearlyTrend[mIndex].ActualMwh += mwh
+			summary.YearlyTrend[mIndex].CO2SavedTon += co2Ton
+		}
+
+		// Update Site Breakdown
+		if siteID != nil {
+			if sItem, ok := siteDataMap[*siteID]; ok {
+				sItem.ActualMwh += mwh
+				sItem.CO2SavedTon += co2Ton
+				sItem.RECReached = int(sItem.ActualMwh)
+			}
+		}
+	}
+
+	// 4. Finalize structures
+	for _, p := range profiles {
+		summary.SiteBreakdown = append(summary.SiteBreakdown, *siteDataMap[p.ID])
+	}
+
+	summary.TotalTreesEq = int(summary.TotalCO2SavedTon * 1000 / 20)
 	summary.TotalRECCount = int(summary.TotalActualMwh)
-	summary.CleanEnergyPct = math.Min(100, (summary.TotalActualMwh / (float64(len(profiles)) * 1.5)) * 100) // Arbitrary benchmark: 1.5MWh per site/year
+	
+	if len(profiles) > 0 && summary.TotalActualMwh > 0 {
+		summary.CleanEnergyPct = math.Min(100, (summary.TotalActualMwh / (float64(len(profiles)) * 1.5)) * 100)
+	} else {
+		summary.CleanEnergyPct = 0
+	}
 
 	return summary, nil
 }
@@ -541,5 +576,109 @@ func (s *service) GetRECReadinessReport(ctx context.Context, userID uuid.UUID) (
 }
 
 func (s *service) GenerateRECReadinessReportPDF(report *RECReadinessReport, userObj *user.User, writer io.Writer) error {
-	return generateRECReadinessReport(report, userObj, writer)
+	err := generateRECReadinessReport(report, userObj, writer)
+	if err == nil {
+		s.RecordReportHistory(userObj.ID, "REC Readiness Report", "rec_pdf", nil)
+	}
+	return err
+}
+
+func (s *service) GetReportHistory(userID uuid.UUID) ([]*ReportHistory, error) {
+	return s.repo.GetReportHistoryByUserID(userID)
+}
+
+func (s *service) RecordReportHistory(userID uuid.UUID, name, rType string, metadata any) {
+	h := &ReportHistory{
+		ID:         uuid.New(),
+		UserID:     userID,
+		ReportName: name,
+		ReportType: rType,
+		Metadata:   metadata,
+		CreatedAt:  time.Now().UTC(),
+	}
+	s.repo.CreateReportHistory(h)
+}
+
+func (s *service) GenerateMonthlySummaryPDF(ctx context.Context, userID uuid.UUID, month string, year int, writer io.Writer) error {
+	// Parse month string to dates
+	t, err := time.Parse("January 2006", fmt.Sprintf("%s %d", month, year))
+	if err != nil {
+		return fmt.Errorf("invalid month/year format")
+	}
+	startDate := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+	endDate := startDate.AddDate(0, 1, -1).Add(23*time.Hour + 59*time.Minute)
+
+	req := ReportRequest{
+		StartDate: startDate.Format(time.DateOnly),
+		EndDate:   endDate.Format(time.DateOnly),
+		IsAnnual:  false,
+	}
+
+	userObj, err := s.userSvc.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+
+	report, err := s.GenerateReport(ctx, userID, userObj.PlanTier, req)
+	if err != nil {
+		return err
+	}
+
+	err = s.GenerateReportPDF(report, userObj, writer)
+	if err == nil {
+		s.RecordReportHistory(userID, fmt.Sprintf("Monthly Summary - %s %d", month, year), "monthly_pdf", map[string]any{"month": month, "year": year})
+	}
+	return err
+}
+
+func (s *service) GenerateSiteAuditPDF(ctx context.Context, userID uuid.UUID, profileID uuid.UUID, writer io.Writer) error {
+	userObj, err := s.userSvc.GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+	profile, err := s.solarService.GetSolarProfileByIDAndUserID(profileID, userID)
+	if err != nil {
+		return err
+	}
+
+	// For site audit, we take last 30 days
+	endDate := time.Now().UTC()
+	startDate := endDate.AddDate(0, 0, -30)
+
+	req := ReportRequest{
+		SolarProfileID: profileID.String(),
+		StartDate:      startDate.Format(time.DateOnly),
+		EndDate:        endDate.Format(time.DateOnly),
+	}
+
+	report, err := s.GenerateReport(ctx, userID, userObj.PlanTier, req)
+	if err != nil {
+		return err
+	}
+
+	// We can use a custom audit page generator here
+	pdf := gofpdf.New("P", "mm", "A4", "")
+	pdf.AddPage()
+	pdf.SetFont("Arial", "B", 20)
+	pdf.Cell(0, 10, "SITE AUDIT REPORT")
+	pdf.Ln(15)
+	pdf.SetFont("Arial", "B", 12)
+	pdf.Cell(0, 10, "Site Name: "+profile.SiteName)
+	pdf.Ln(8)
+	pdf.Cell(0, 10, fmt.Sprintf("Capacity: %.2f kWp", profile.CapacityKwp))
+	pdf.Ln(8)
+	pdf.Cell(0, 10, fmt.Sprintf("Location: %.4f, %.4f", profile.Lat, profile.Lng))
+	pdf.Ln(15)
+	pdf.SetFont("Arial", "", 11)
+	pdf.MultiCell(0, 6, "This technical audit evaluates the performance of your solar PV installation based on historical telemetry data and localized weather factors.", "", "J", false)
+	pdf.Ln(10)
+	pdf.Cell(0, 10, fmt.Sprintf("Total Production (30d): %.2f kWh", report.TotalActualKwh))
+	pdf.Ln(8)
+	pdf.Cell(0, 10, fmt.Sprintf("System Efficiency: %.1f%%", userObj.ForecastEfficiency*100))
+
+	err = pdf.Output(writer)
+	if err == nil {
+		s.RecordReportHistory(userID, "Site Audit - "+profile.SiteName, "site_audit_pdf", map[string]any{"profile_id": profileID})
+	}
+	return err
 }

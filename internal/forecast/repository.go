@@ -27,6 +27,8 @@ type Repository interface {
 	CountForecastHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error)
 	CountActualHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error)
 	HasAnyActualData(userID uuid.UUID) (bool, error)
+	GetPaginatedActuals(userID uuid.UUID, req ListActualsRequest) ([]ActualWithProfile, int, error)
+	GetPaginatedForecasts(userID uuid.UUID, req ListActualsRequest) ([]ForecastWithProfile, int, error)
 }
 // HasAnyActualData returns true if the user has any actual daily data recorded.
 func (r *repository) HasAnyActualData(userID uuid.UUID) (bool, error) {
@@ -240,21 +242,25 @@ func (r *repository) GetForecastHistoryByUser(userID uuid.UUID, days int, filter
 
 // GetActualHistoryByUser returns recent actual measurements for a user (last N days).
 func (r *repository) GetActualHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) ([]*ActualDaily, error) {
-	args := []any{userID, days}
+	args := []any{userID}
 	b := strings.Builder{}
 	b.WriteString(`
 		SELECT id, user_id, solar_profile_id, date, actual_kwh, source, created_at
 		FROM actual_daily
-		WHERE user_id = $1 AND date >= NOW() - INTERVAL '1 day' * $2
+		WHERE user_id = $1
 	`)
+
+	if filter.StartDate != nil {
+		args = append(args, normalizeDate(*filter.StartDate))
+		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
+	} else if days > 0 {
+		args = append(args, days)
+		b.WriteString(fmt.Sprintf(" AND date >= NOW() - INTERVAL '1 day' * $%d", len(args)))
+	}
 
 	if filter.SolarProfileID != nil {
 		args = append(args, *filter.SolarProfileID)
 		b.WriteString(fmt.Sprintf(" AND solar_profile_id = $%d", len(args)))
-	}
-	if filter.StartDate != nil {
-		args = append(args, normalizeDate(*filter.StartDate))
-		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
 	}
 	if filter.EndDate != nil {
 		args = append(args, normalizeDate(*filter.EndDate))
@@ -339,21 +345,25 @@ func (r *repository) CountForecastHistoryByUser(userID uuid.UUID, days int, filt
 }
 
 func (r *repository) CountActualHistoryByUser(userID uuid.UUID, days int, filter HistoryFilter) (int, error) {
-	args := []any{userID, days}
+	args := []any{userID}
 	b := strings.Builder{}
 	b.WriteString(`
 		SELECT COUNT(*)
 		FROM actual_daily
-		WHERE user_id = $1 AND date >= NOW() - INTERVAL '1 day' * $2
+		WHERE user_id = $1
 	`)
+
+	if filter.StartDate != nil {
+		args = append(args, normalizeDate(*filter.StartDate))
+		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
+	} else if days > 0 {
+		args = append(args, days)
+		b.WriteString(fmt.Sprintf(" AND date >= NOW() - INTERVAL '1 day' * $%d", len(args)))
+	}
 
 	if filter.SolarProfileID != nil {
 		args = append(args, *filter.SolarProfileID)
 		b.WriteString(fmt.Sprintf(" AND solar_profile_id = $%d", len(args)))
-	}
-	if filter.StartDate != nil {
-		args = append(args, normalizeDate(*filter.StartDate))
-		b.WriteString(fmt.Sprintf(" AND date >= $%d", len(args)))
 	}
 	if filter.EndDate != nil {
 		args = append(args, normalizeDate(*filter.EndDate))
@@ -365,4 +375,164 @@ func (r *repository) CountActualHistoryByUser(userID uuid.UUID, days int, filter
 		return 0, fmt.Errorf("count actual history: %w", err)
 	}
 	return count, nil
+}
+
+func (r *repository) GetPaginatedActuals(userID uuid.UUID, req ListActualsRequest) ([]ActualWithProfile, int, error) {
+	if req.Limit <= 0 {
+		req.Limit = 10
+	}
+	if req.Page < 1 {
+		req.Page = 1
+	}
+	offset := (req.Page - 1) * req.Limit
+
+	// Sort and Order validation
+	allowedSorts := map[string]bool{"created_at": true, "date": true, "actual_kwh": true}
+	if !allowedSorts[req.Sort] {
+		req.Sort = "date"
+	}
+	if strings.ToLower(req.Order) != "asc" {
+		req.Order = "desc"
+	}
+
+	// 1. Get Total Count
+	countQuery := `SELECT COUNT(*) FROM actual_daily a WHERE a.user_id = $1`
+	var countArgs = []any{userID}
+	if req.StartDate != "" {
+		countQuery += " AND a.date >= $2"
+		countArgs = append(countArgs, req.StartDate)
+	}
+	if req.EndDate != "" {
+		countQuery += fmt.Sprintf(" AND a.date <= $%d", len(countArgs)+1)
+		countArgs = append(countArgs, req.EndDate)
+	}
+
+	var totalCount int
+	if err := r.db.QueryRow(countQuery, countArgs...).Scan(&totalCount); err != nil {
+		return nil, 0, fmt.Errorf("count actuals: %w", err)
+	}
+
+	// 2. Get Data with Join
+	whereClause := "WHERE a.user_id = $1"
+	dataArgs := []any{userID}
+	if req.StartDate != "" {
+		whereClause += " AND a.date >= $2"
+		dataArgs = append(dataArgs, req.StartDate)
+	}
+	if req.EndDate != "" {
+		whereClause += fmt.Sprintf(" AND a.date <= $%d", len(dataArgs)+1)
+		dataArgs = append(dataArgs, req.EndDate)
+	}
+
+	dataQuery := fmt.Sprintf(`
+		SELECT a.id, a.user_id, a.solar_profile_id, a.date, a.actual_kwh, a.source, a.created_at, 
+		       COALESCE(sp.site_name, 'Unknown Site') as site_name
+		FROM actual_daily a
+		LEFT JOIN solar_profiles sp ON a.solar_profile_id = sp.id
+		%s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d
+	`, whereClause, req.Sort, req.Order, len(dataArgs)+1, len(dataArgs)+2)
+
+	dataArgs = append(dataArgs, req.Limit, offset)
+	rows, err := r.db.Query(dataQuery, dataArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query paginated actuals: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ActualWithProfile
+	for rows.Next() {
+		var ap ActualWithProfile
+		if err := rows.Scan(
+			&ap.ID, &ap.UserID, &ap.SolarProfileID, &ap.Date, &ap.ActualKwh, &ap.Source, &ap.CreatedAt, 
+			&ap.SiteName,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan actual with profile: %w", err)
+		}
+		results = append(results, ap)
+	}
+
+	return results, totalCount, nil
+}
+
+func (r *repository) GetPaginatedForecasts(userID uuid.UUID, req ListActualsRequest) ([]ForecastWithProfile, int, error) {
+	if req.Limit <= 0 {
+		req.Limit = 10
+	}
+	if req.Page < 1 {
+		req.Page = 1
+	}
+	offset := (req.Page - 1) * req.Limit
+
+	// Sort and Order validation
+	allowedSorts := map[string]bool{"created_at": true, "date": true, "predicted_kwh": true, "efficiency": true}
+	if !allowedSorts[req.Sort] {
+		req.Sort = "date"
+	}
+	if strings.ToLower(req.Order) != "asc" {
+		req.Order = "desc"
+	}
+
+	// 1. Get Total Count
+	countQuery := `SELECT COUNT(*) FROM forecasts f WHERE f.user_id = $1`
+	var countArgs = []any{userID}
+	if req.StartDate != "" {
+		countQuery += " AND f.date >= $2"
+		countArgs = append(countArgs, req.StartDate)
+	}
+	if req.EndDate != "" {
+		countQuery += fmt.Sprintf(" AND f.date <= $%d", len(countArgs)+1)
+		countArgs = append(countArgs, req.EndDate)
+	}
+
+	var totalCount int
+	if err := r.db.QueryRow(countQuery, countArgs...).Scan(&totalCount); err != nil {
+		return nil, 0, fmt.Errorf("count forecasts: %w", err)
+	}
+
+	// 2. Get Data with Join
+	whereClause := "WHERE f.user_id = $1"
+	dataArgs := []any{userID}
+	if req.StartDate != "" {
+		whereClause += " AND f.date >= $2"
+		dataArgs = append(dataArgs, req.StartDate)
+	}
+	if req.EndDate != "" {
+		whereClause += fmt.Sprintf(" AND f.date <= $%d", len(dataArgs)+1)
+		dataArgs = append(dataArgs, req.EndDate)
+	}
+
+	dataQuery := fmt.Sprintf(`
+		SELECT f.id, f.user_id, f.solar_profile_id, f.date, f.predicted_kwh, f.weather_factor, 
+		       f.cloud_cover, f.efficiency, f.delta_wf, f.baseline_type, f.created_at,
+		       COALESCE(sp.site_name, 'Unknown Site') as site_name
+		FROM forecasts f
+		LEFT JOIN solar_profiles sp ON f.solar_profile_id = sp.id
+		%s
+		ORDER BY %s %s
+		LIMIT $%d OFFSET $%d
+	`, whereClause, req.Sort, req.Order, len(dataArgs)+1, len(dataArgs)+2)
+
+	dataArgs = append(dataArgs, req.Limit, offset)
+	rows, err := r.db.Query(dataQuery, dataArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query paginated forecasts: %w", err)
+	}
+	defer rows.Close()
+
+	var results []ForecastWithProfile
+	for rows.Next() {
+		var fp ForecastWithProfile
+		if err := rows.Scan(
+			&fp.ID, &fp.UserID, &fp.SolarProfileID, &fp.Date, &fp.PredictedKwh, &fp.WeatherFactor,
+			&fp.CloudCover, &fp.Efficiency, &fp.DeltaWF, &fp.BaselineType, &fp.CreatedAt,
+			&fp.SiteName,
+		); err != nil {
+			return nil, 0, fmt.Errorf("scan forecast with profile: %w", err)
+		}
+		results = append(results, fp)
+	}
+
+	return results, totalCount, nil
 }

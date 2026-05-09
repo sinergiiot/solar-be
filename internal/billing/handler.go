@@ -3,10 +3,13 @@ package billing
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/akbarsenawijaya/solar-forecast/internal/auth"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type Handler struct {
@@ -24,6 +27,8 @@ func (h *Handler) RegisterPublicRoutes(r chi.Router) {
 func (h *Handler) RegisterProtectedRoutes(r chi.Router) {
 	r.Post("/billing/checkout", h.Checkout)
 	r.Get("/billing/subscription", h.GetSubscription)
+	r.Get("/billing/history", h.GetSubscriptionHistory)
+	r.Get("/billing/invoice/{id}", h.DownloadInvoice)
 	r.Post("/billing/subscription/cancel", h.CancelSubscription)
 }
 
@@ -72,6 +77,44 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, sub)
+}
+
+func (h *Handler) GetSubscriptionHistory(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	subs, err := h.service.GetSubscriptionHistory(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, subs)
+}
+
+func (h *Handler) DownloadInvoice(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	idStr := chi.URLParam(r, "id")
+	subID, err := uuid.Parse(idStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid invoice id")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=Invoice_%s.pdf", idStr[:8]))
+
+	if err := h.service.GenerateInvoicePDF(r.Context(), subID, userID, w); err != nil {
+		log.Printf("Failed to generate invoice: %v", err)
+	}
 }
 
 func (h *Handler) CancelSubscription(w http.ResponseWriter, r *http.Request) {

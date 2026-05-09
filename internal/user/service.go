@@ -22,6 +22,8 @@ type Service interface {
 	EnableESGShare(id uuid.UUID) (string, error)
 	DisableESGShare(id uuid.UUID) error
 	GetUserByESGShareToken(token string) (*User, error)
+	AdminUpdateUser(id uuid.UUID, name, email string) error
+	DeleteUser(id uuid.UUID) error
 }
 
 type service struct {
@@ -137,4 +139,20 @@ func (s *service) DisableESGShare(id uuid.UUID) error {
 // GetUserByESGShareToken finds a user by their public share token.
 func (s *service) GetUserByESGShareToken(token string) (*User, error) {
 	return s.repo.GetUserByESGShareToken(token)
+}
+
+// AdminUpdateUser allows an administrator to update any user's profile.
+func (s *service) AdminUpdateUser(id uuid.UUID, name, email string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(email) == "" {
+		return fmt.Errorf("email is required")
+	}
+	return s.repo.UpdateUser(id, strings.TrimSpace(name), strings.ToLower(strings.TrimSpace(email)))
+}
+
+// DeleteUser removes a user account completely.
+func (s *service) DeleteUser(id uuid.UUID) error {
+	return s.repo.DeleteUser(id)
 }

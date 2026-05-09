@@ -762,7 +762,10 @@ func generateESGReport(summary *ESGSummary, userObj *user.User, year int, writer
 		
 		// Mini bar charts
 		barMax := 100.0
-		barWidth := (t.ActualMwh / (summary.TotalActualMwh / 6)) * barMax
+		barWidth := 0.0
+		if summary.TotalActualMwh > 0 {
+			barWidth = (t.ActualMwh / (summary.TotalActualMwh / 6)) * barMax
+		}
 		if barWidth > barMax { barWidth = barMax }
 		
 		pdf.SetFillColor(21, 150, 90)

@@ -59,6 +59,7 @@ func main() {
 	billingRepo := billing.NewRepository(db)
 	recRepo := rec.NewRepository(db)
 	apiKeyRepo := apikey.NewRepository(db)
+	reportRepo := report.NewRepository(db)
 
 	// Wire services
 	userSvc := user.NewService(userRepo)
@@ -108,7 +109,7 @@ func main() {
 		cfg.DOKU.BaseURL,
 		cfg.DOKU.AppBaseURL,
 	)
-	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc)
+	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc, reportRepo)
 	adminSvc := admin.NewService(db, userSvc, cfg.Auth.JWTSecret, cfg.Auth.TokenExpiryHrs)
 	apiKeySvc := apikey.NewService(apiKeyRepo, userSvc)
 

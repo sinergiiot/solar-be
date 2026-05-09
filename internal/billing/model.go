@@ -15,6 +15,7 @@ type Subscription struct {
 	Amount             int64      `json:"amount"`
 	Currency           string     `json:"currency"`
 	ExternalCheckoutID string     `json:"external_checkout_id"`
+	PaymentURL         string     `json:"payment_url,omitempty"`
 	ExpiresAt          time.Time  `json:"expires_at"`
 	NextBillingAt     *time.Time `json:"next_billing_at,omitempty"`
 	LastPaymentAt      *time.Time `json:"last_payment_at,omitempty"`

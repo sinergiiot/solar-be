@@ -139,3 +139,13 @@ type RECMonth struct {
 	Month     string  `json:"month"`
 	ActualMwh float64 `json:"actual_mwh"`
 }
+
+// ReportHistory tracks generated reports for auditing and user re-downloads.
+type ReportHistory struct {
+	ID         uuid.UUID  `json:"id"`
+	UserID     uuid.UUID  `json:"user_id"`
+	ReportName string     `json:"report_name"`
+	ReportType string     `json:"report_type"`
+	Metadata   any        `json:"metadata,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}

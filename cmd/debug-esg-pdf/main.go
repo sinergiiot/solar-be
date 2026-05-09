@@ -44,7 +44,7 @@ func main() {
 	forecastRepo := forecast.NewRepository(db)
 	forecastSvc := forecast.NewService(forecastRepo, solarSvc, deviceSvc, weatherSvc, recSvc, weatherBaselineSvc)
 	
-	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc)
+	reportSvc := report.NewService(forecastSvc, solarSvc, recSvc, userSvc, report.NewRepository(db))
 
 	uid := uuid.MustParse(USER_ID)
 	summary, _ := reportSvc.GetESGSummary(context.Background(), uid, "enterprise", 2025)
